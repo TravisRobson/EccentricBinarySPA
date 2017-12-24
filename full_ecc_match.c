@@ -22,6 +22,7 @@ void construct_Data(struct EccBinary *eb, struct Data *data);
 void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data);
 double find_max_tc(double *a, double *b, double *inv_ft, struct Data *data);
 void fill_num_series(double *num_series, struct Data *data);
+void fill_spa_series_new(double *spa_series, struct Data *data, double *spa_0, struct EccBinary *eb);
 
 #define PBSTR "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
 #define PBWIDTH 60
@@ -39,8 +40,8 @@ void printProgress(double percentage)
 int main(int argc, char *argv[])
 {		
 	int l     = 0;
-	int k_max = 50; 
-	int m_max = 50;
+	int k_max = 30; 
+	int m_max = 30;
 	
 	long i, k, m;
 	
@@ -55,6 +56,7 @@ int main(int argc, char *argv[])
 	double *num_series;
 	double *inv_ft;
 	double *spa_series;
+	double *spa_0;
 		
 	clock_t begin = clock();
 	clock_t end;
@@ -71,21 +73,29 @@ int main(int argc, char *argv[])
 	num_series  = malloc(2*data->NFFT*sizeof(double));
 	inv_ft      = malloc(2*data->NFFT*sizeof(double));
 	spa_series  = malloc(2*data->NFFT*sizeof(double));
+	spa_0		= malloc(2*data->NFFT*sizeof(double));
 	for (i=0; i<2*data->NFFT; i++)
 	{
 		spa_series[i] = 0.;
+		spa_0[i]      = 0.;
 	}
-
+	fill_spa_series(spa_0, eb, data);
+	
+	
 	fill_num_series(num_series, data);
 	snr = get_SNR(num_series, data);
 	fprintf(stdout, "num SNR: %f\n\n", snr);
 
 	begin = clock();
+	
+	FILE *out_file;
+	out_file = fopen("test.dat", "w");
 		
 	for (k=0; k<=k_max; k++)
 	{	
 		eb->tc = 0.;	// reset tc
 		fill_spa_series(spa_series, eb, data);
+		fill_spa_series(spa_0, eb, data);
 		
 		// iFFT to find tc which maximizes for current lc
 		eb->tc = -find_max_tc(num_series, spa_series, inv_ft, data);
@@ -94,7 +104,7 @@ int main(int argc, char *argv[])
 		// perform local search for tc max
 		for (m=0; m<=m_max; m++)
 		{
-			fill_spa_series(spa_series, eb, data);
+			fill_spa_series_new(spa_series, data, spa_0, eb);
 			snr_spa = get_SNR(spa_series, data);
 			match   = get_overlap(spa_series, num_series, data)/snr/snr_spa;
 			
@@ -105,6 +115,9 @@ int main(int argc, char *argv[])
 				tc_mm = eb->tc;
 				lc_mm = eb->lc;
 			} 
+			fprintf(out_file, "%e %e %e\n", eb->lc, eb->tc, fabs(match));
+			
+			// increment tc
 			eb->tc += 2.*data->dt/(double)m_max;
 			
 			// increment counter for loading bar
@@ -115,6 +128,8 @@ int main(int argc, char *argv[])
 		// increment lc
 		eb->lc += PI2/(double)k_max;	
 	}
+	
+	fclose(out_file);
 
 	eb->lc = lc_mm;
 	eb->tc = tc_mm;
@@ -135,10 +150,11 @@ int main(int argc, char *argv[])
 	
 	free(num_series);
 	free(spa_series);
-
+	free(spa_0);
 	
 	free(eb);
 	free(data);
+
 
 	return 0;
 }
@@ -314,6 +330,28 @@ void fill_num_series(double *num_series, struct Data *data)
 		num_series[i] *= data->dt;
 	}
 	
+	return;
+}
+
+void fill_spa_series_new(double *spa_series, struct Data *data, double *spa_0, struct EccBinary *eb)
+{
+	long i, iRe, iIm;
+	
+	double f;
+	double df = 1./(double)data->NFFT/data->dt;
+	double arg = PI2*eb->tc;
+	
+	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+	{
+		iRe = 2*i*data->under_samp;
+		iIm = 2*(i*data->under_samp)+1;
+		
+		f = (double)(i*data->under_samp)*df;
+
+		spa_series[iRe] =  spa_0[iRe]*cos(arg*f) + spa_0[iIm]*sin(arg*f);
+		spa_series[iIm] = -spa_0[iRe]*sin(arg*f) + spa_0[iIm]*cos(arg*f);
+	}
+
 	return;
 }
 
