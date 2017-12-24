@@ -19,6 +19,9 @@
 
 void setup_EccBinary(struct EccBinary *eb);
 void construct_Data(struct EccBinary *eb, struct Data *data);
+void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data);
+double find_max_tc(double *a, double *b, double *inv_ft, struct Data *data);
+void fill_num_series(double *num_series, struct Data *data);
 
 #define PBSTR "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
 #define PBWIDTH 60
@@ -35,21 +38,24 @@ void printProgress(double percentage)
 
 int main(int argc, char *argv[])
 {		
-	long iRe, iIm;
+	int l     = 0;
+	int k_max = 50; 
+	int m_max = 50;
+	
 	long i, k, m;
-
+	
 	double time_spent;
-	double snr, Sn ,f;
-	double snr_spa;
-	double max_corr;
-	double tc_max;
+	double snr, snr_spa, match;
+
+	double max_match = 0.;
+	double tc_mm     = 0.;
+	double lc_mm     = 0.;
+	double percent   = 0.;
 	
-	double *time_series;
+	double *num_series;
 	double *inv_ft;
-	double *spa_series; 
-	
-	FILE *in_file;
-	
+	double *spa_series;
+		
 	clock_t begin = clock();
 	clock_t end;
 	
@@ -58,231 +64,62 @@ int main(int argc, char *argv[])
 	struct EccBinary *eb = malloc(sizeof(struct EccBinary));
 	struct Data *data    = malloc(sizeof(struct Data));
 	
-	
-	
 	setup_EccBinary(eb);
 	setup_interp(eb);
 	construct_Data(eb, data);
 	
-	time_series = malloc(2*data->NFFT*sizeof(double));
+	num_series  = malloc(2*data->NFFT*sizeof(double));
 	inv_ft      = malloc(2*data->NFFT*sizeof(double));
-	spa_series = malloc(2*data->NFFT*sizeof(double));
-	
-	in_file = fopen("soln.dat", "r");
-	read_soln(time_series, in_file, data);
-	gsl_fft_complex_radix2_forward(time_series, 1, data->NFFT);
-	print_dft(time_series, fopen("dft.dat", "w"), data);
-	for (i=0; i<2*data->NFFT; i++)
-	{	// Correct the units to make a true FT
-		time_series[i] *= data->dt;
-	}
-	
-	snr = get_SNR(time_series, data);
-	fprintf(stdout, "num SNR: %f\n\n", snr);
-
-	
-	begin = clock();
-	double *harm_t_ser; harm_t_ser = malloc(2.*data->N*sizeof(double));
-	for (i=0; i<data->N;i++)
-	{
-		harm_t_ser[i] = 0.;
-	}
-	double match = 0.;
-
-	 
+	spa_series  = malloc(2*data->NFFT*sizeof(double));
 	for (i=0; i<2*data->NFFT; i++)
 	{
 		spa_series[i] = 0.;
 	}
 
-	long j_max, j_min;
-	j_max = 30; j_min = 1;
-	double spaRe, spaIm;
-	for (i=1; i<=data->NFFT/2; i++)
-	{
-		if (i%data->under_samp == 0)
-		{
-			f = (double)(i)/(double)data->NFFT/data->dt;
-			get_eccSPA(eb, f, &spaRe, &spaIm, j_max, j_min);
-			
-			iRe = 2*i;
-			iIm = 2*i+1;
+	fill_num_series(num_series, data);
+	snr = get_SNR(num_series, data);
+	fprintf(stdout, "num SNR: %f\n\n", snr);
 
-			spa_series[iRe] = spaRe;
-			spa_series[iIm] = spaIm;
-		}
-	}
-	snr_spa = get_SNR(spa_series, data);
-	
-	for (i=1; i<=data->NFFT/2; i++)
-	{
-		if (i%data->under_samp == 0)
-		{
-			iRe = 2*i;
-			iIm = 2*i+1;
-			f = (double)(i)/(double)data->NFFT/data->dt;
+	begin = clock();
 		
-			Sn = get_Sn(f);
-		
-			match += (spa_series[iRe]*time_series[iRe] + spa_series[iIm]*time_series[iIm])/Sn;
-		}
-	}
-	match *= 4./(double)data->NFFT*(double)data->under_samp/data->dt;
-	match /= snr*snr_spa;
-
-	long m_max = 50;
-	double max_match = 0.; double tc_mm = 0.; double lc_mm = 0.;
-	int k_max = 50; long l = 0; double percent = 0.;
-	
-	for (k=1; k<=k_max+1; k++)
+	for (k=0; k<=k_max; k++)
 	{	
-		// sample the SPA at current tc and lc
-		eb->tc = 0.;
-		for (i=1; i<=data->NFFT/2; i++)
-		{
-			if (i%data->under_samp == 0)
-			{
-				f = (double)(i)/(double)data->NFFT/data->dt;
-				get_eccSPA(eb, f, &spaRe, &spaIm, j_max, j_min);
-			
-				iRe = 2*i;
-				iIm = 2*i+1;
-
-				spa_series[iRe] = spaRe;
-				spa_series[iIm] = spaIm;
-			}
-		}
+		eb->tc = 0.;	// reset tc
+		fill_spa_series(spa_series, eb, data);
 		
 		// iFFT to find tc which maximizes for current lc
-		max_corr = 0.;
-		tc_max   = 0.;
-		for (i=0; i<2*data->NFFT; i++)
-		{
-			inv_ft[i] = 0.;
-		}
-		for (i=1; i<=data->NFFT/2; i++)
-		{
-			f = (double)(i)/(double)data->NFFT/data->dt;
-			Sn = get_Sn(f);
+		eb->tc = -find_max_tc(num_series, spa_series, inv_ft, data);
+		eb->tc -= data->dt;
 		
-			iRe = 2*i;
-			iIm = 2*i+1;
-
-			inv_ft[iRe] = (time_series[iRe]*spa_series[iRe] + time_series[iIm]*spa_series[iIm])/Sn;
-			inv_ft[iIm] = (time_series[iRe]*spa_series[iIm] - time_series[iIm]*spa_series[iRe])/Sn;
-		}
-		gsl_fft_complex_radix2_backward(inv_ft, 1, data->NFFT);
-		for (i=0; i<data->NFFT; i++)
+		// perform local search for tc max
+		for (m=0; m<=m_max; m++)
 		{
-			if (fabs(inv_ft[2*i]) > max_corr)
-			{
-				max_corr = fabs(inv_ft[2*i]);
-				tc_max = data->dt*(double)(i);
-			} 
-		}
-	
-		// recalculate SPA and its SNR
-		eb->tc = -tc_max;
-		snr_spa = 0.;
-		for (i=1; i<=data->NFFT/2; i++)
-		{
-			if (i%data->under_samp == 0)
-			{
-				f = (double)(i)/(double)data->NFFT/data->dt;
-				get_eccSPA(eb, f, &spaRe, &spaIm, j_max, j_min);
-			
-				iRe = 2*i;
-				iIm = 2*i+1;
-
-				spa_series[iRe] = spaRe;
-				spa_series[iIm] = spaIm;
-				
-				Sn = get_Sn(f);
-				
-				snr_spa += (spa_series[iRe]*spa_series[iRe] + spa_series[iIm]*spa_series[iIm])/Sn;
-			}
-		}
-		snr_spa *= 4./(double)data->NFFT/data->dt*(double)data->under_samp;
-		snr_spa  = sqrt(snr_spa); 
-
-		match = 0.;
-		for (i=1; i<=data->NFFT/2; i++)
-		{
-			if (i%data->under_samp == 0)
-			{
-				iRe = 2*i;
-				iIm = 2*i+1;
-				f = (double)(i)/(double)data->NFFT/data->dt;
-		
-				Sn = get_Sn(f);
-
-				match += (spa_series[iRe]*time_series[iRe] + spa_series[iIm]*time_series[iIm])/Sn;
-				
-			}
-		}
-		match *= 4./(double)data->NFFT*(double)data->under_samp/data->dt;
-		match /= snr*snr_spa;
-		
-		eb->tc -= data->dt*(double)data->under_samp;
-		
-		for (m=0; m<m_max; m++)
-		{
-			for (i=1; i<=data->NFFT/2; i++)
-			{
-				if (i%data->under_samp == 0)
-				{
-					f = (double)(i)/(double)data->NFFT/data->dt;
-					get_eccSPA(eb, f, &spaRe, &spaIm, j_max, j_min);
-			
-					iRe = 2*i;
-					iIm = 2*i+1;
-
-					spa_series[iRe] = spaRe;
-					spa_series[iIm] = spaIm;
-				}
-			}
+			fill_spa_series(spa_series, eb, data);
 			snr_spa = get_SNR(spa_series, data);
-
-
-			match = get_overlap(spa_series, time_series, data)/snr/snr_spa;
-			eb->tc += 2.*data->dt/(double)m_max*(double)data->under_samp;
-			l++;
+			match   = get_overlap(spa_series, num_series, data)/snr/snr_spa;
 			
-			
-			percent = (double)l/(double)((k_max)*(m_max+1));
-			printProgress(percent);
+			// update maximum match
 			if (fabs(match)>max_match)
 			{
 				max_match = fabs(match);
-				tc_mm = eb->tc - 2.*data->dt/(double)m_max;
+				tc_mm = eb->tc;
 				lc_mm = eb->lc;
 			} 
+			eb->tc += 2.*data->dt/(double)m_max;
+			
+			// increment counter for loading bar
+			l++;
+			percent = (double)l/(double)((k_max+1)*(m_max+1));
+			printProgress(percent);
 		}
-
+		// increment lc
 		eb->lc += PI2/(double)k_max;	
 	}
-	
-	/////////////////////////////
-	
+
 	eb->lc = lc_mm;
 	eb->tc = tc_mm;
-	for (i=1; i<=data->NFFT/2; i++)
-	{
-		if (i%data->under_samp == 0)
-		{
-			f = (double)(i)/(double)data->NFFT/data->dt;
-			get_eccSPA(eb, f, &spaRe, &spaIm, j_max, j_min);
-			
-			iRe = 2*i;
-			iIm = 2*i+1;
-
-			spa_series[iRe] = spaRe;
-			spa_series[iIm] = spaIm;
-		}
-	}
+	fill_spa_series(spa_series, eb, data);
 	print_spa(spa_series, fopen("spa.dat", "w"), data);
-	
-	/////////////////////////////
 	
 	snr_spa = get_SNR(spa_series, data);
 	fprintf(stdout, "\nFF: %f\n",   max_match);
@@ -296,9 +133,9 @@ int main(int argc, char *argv[])
 	
 	fprintf(stdout, "\n==============================================================\n");
 	
-	free(time_series);
+	free(num_series);
 	free(spa_series);
-	free(inv_ft);
+
 	
 	free(eb);
 	free(data);
@@ -348,6 +185,9 @@ void setup_EccBinary(struct EccBinary *eb)
 
 	eb->lc = 0.;
 	eb->tc = 0.;
+	
+	eb->j_max = 30;
+	eb->j_min = 1;
 
 	return;
 }
@@ -393,9 +233,89 @@ void construct_Data(struct EccBinary *eb, struct Data *data)
 	return;
 }
 
+void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data)
+{
+	long i, iRe, iIm;
+	
+	double f;
+	double df = 1./(double)data->NFFT/data->dt;
+	double spaRe, spaIm;
+	
+	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+	{
+		iRe = 2*i*data->under_samp;
+		iIm = 2*(i*data->under_samp)+1;
+		
+		f = (double)(i*data->under_samp)*df;
+		
+		get_eccSPA(eb, f, &spaRe, &spaIm);
 
+		spa_series[iRe] = spaRe;
+		spa_series[iIm] = spaIm;
+	}
 
+	return;
+}
 
+double find_max_tc(double *a, double *b, double *inv_ft, struct Data *data)
+{
+	long i, iRe, iIm;
+	
+	double max_corr, tc_max, Sn, f;
+	double df = 1./(double)data->NFFT/data->dt;
+	
+	max_corr = 0.;
+	tc_max   = 0.;
+	
+	for (i=0; i<2*data->NFFT; i++)
+	{
+		inv_ft[i] = 0.;
+	}
+	for (i=1; i<=data->NFFT/2; i++)
+	{
+		f = (double)(i)*df;
+		Sn = get_Sn(f);
+
+		iRe = 2*i;
+		iIm = 2*i+1;
+
+		inv_ft[iRe] = (a[iRe]*b[iRe] + a[iIm]*b[iIm])/Sn;
+		inv_ft[iIm] = (a[iRe]*b[iIm] - a[iIm]*b[iRe])/Sn;
+	}
+	
+	gsl_fft_complex_radix2_backward(inv_ft, 1, data->NFFT);
+	
+	for (i=0; i<data->NFFT; i++)
+	{
+		if (fabs(inv_ft[2*i]) > max_corr)
+		{
+			max_corr = fabs(inv_ft[2*i]);
+			tc_max = data->dt*(double)(i);
+		} 
+	}
+	
+	return tc_max;
+}
+
+void fill_num_series(double *num_series, struct Data *data)
+{
+	long i;
+	
+	FILE *in_file;
+	
+	in_file = fopen("soln.dat", "r");
+	read_soln(num_series, in_file, data);
+	
+	gsl_fft_complex_radix2_forward(num_series, 1, data->NFFT);
+	print_dft(num_series, fopen("dft.dat", "w"), data);
+	
+	for (i=0; i<2*data->NFFT; i++)
+	{	// Correct the units to make a true FT
+		num_series[i] *= data->dt;
+	}
+	
+	return;
+}
 
 
 

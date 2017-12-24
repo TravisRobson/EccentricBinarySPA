@@ -6,7 +6,7 @@ CCFLAGS += -g -Wall -std=gnu99 -fmax-errors=5 -O2#-Werror
 
 OBJS = Ecc_SPA.o Ecc_Binary.o Ecc_Adiabat_Evol.o Detector.o Ecc_IO.o Ecc_Math.o
 
-all : $(OBJS) Ecc_SPA_test num_test no_RR_test harm_match spa_harm full_match
+all : $(OBJS) num_test no_RR_test harm_match spa_harm full_match
 
 Ecc_SPA.o : Ecc_SPA.c Ecc_SPA.h Ecc_Binary.h Constants.h
 	$(CC) $(CCFLAGS) -c Ecc_SPA.c
@@ -27,8 +27,6 @@ Ecc_Math.o : Ecc_Math.c Ecc_Math.h Ecc_IO.h Ecc_Binary.h Detector.h
 	$(CC) $(CCFLAGS) -c Ecc_Math.c
 
 
-Ecc_SPA_test : $(OBJS) Ecc_SPA_test.c
-	$(CC) $(CCFLAGS) -o Ecc_SPA_test Ecc_SPA_test.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
 
 num_test : $(OBJS) Ecc_num_test.c
 	$(CC) $(CCFLAGS) -o num_test Ecc_num_test.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
@@ -46,4 +44,4 @@ full_match : $(OBJS) full_ecc_match.c
 	$(CC) $(CCFLAGS) -o full_match full_ecc_match.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
 	
 clean: 
-	rm *.o Ecc_SPA_test num_test no_RR_test harm_match spa_harm full_match
+	rm *.o num_test no_RR_test harm_match spa_harm full_match
