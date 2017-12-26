@@ -6,7 +6,7 @@ CCFLAGS += -g -Wall -std=gnu99 -fmax-errors=5 -O2#-Werror
 
 OBJS = Ecc_SPA.o Ecc_Binary.o Ecc_Adiabat_Evol.o Detector.o Ecc_IO.o Ecc_Math.o
 
-all : $(OBJS) num_test no_RR_test harm_match spa_harm full_match
+all : $(OBJS) num_test no_RR_test harm_match spa_harm full_match num_spa_harms fisher
 
 Ecc_SPA.o : Ecc_SPA.c Ecc_SPA.h Ecc_Binary.h Constants.h
 	$(CC) $(CCFLAGS) -c Ecc_SPA.c
@@ -43,5 +43,11 @@ spa_harm : $(OBJS) harmonic_breakout_num_SPA.c
 full_match : $(OBJS) full_ecc_match.c
 	$(CC) $(CCFLAGS) -o full_match full_ecc_match.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
 	
+num_spa_harms : $(OBJS) num_SPA_harms.c
+	$(CC) $(CCFLAGS) -o num_spa_harms num_SPA_harms.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
+	
+fisher : $(OBJS) fisher_ecc.c
+	$(CC) $(CCFLAGS) -o fisher fisher_ecc.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
+	
 clean: 
-	rm *.o num_test no_RR_test harm_match spa_harm full_match
+	rm *.o num_test no_RR_test harm_match spa_harm full_match num_spa_harms fisher

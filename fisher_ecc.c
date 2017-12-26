@@ -9,6 +9,11 @@
 #include <gsl/gsl_odeiv2.h>
 #include <gsl/gsl_matrix.h>
 
+#include <gsl/gsl_linalg.h>
+#include <gsl/gsl_vector.h>
+#include <gsl/gsl_eigen.h>
+
+
 #include "Ecc_SPA.h"
 #include "Ecc_Binary.h"
 #include "Ecc_Adiabat_Evol.h"
@@ -26,6 +31,7 @@ void fill_SPA_matrix(double **spa_matrix, struct EccBinary *eb, struct Data *dat
 void spa_matrix_to_array(double **spa_matrix, double *spa_series, struct EccBinary *eb, struct Data *data);
 void fill_Fisher(struct EccBinary *eb, struct Data *data);
 void map_array_to_params(struct EccBinary *eb);
+double invert_matrix(double **matrix, int N);
 
 double find_max_tc(double *a, double *b, double *inv_ft, struct Data *data);
 
@@ -214,6 +220,8 @@ int main(int argc, char *argv[])
 	}
 	map_array_to_params(eb_p);
 	map_array_to_params(eb_m);
+	set_Antenna(eb_p);
+	set_Antenna(eb_m);
 	
 	double *spa_p = malloc(2*data->NFFT*sizeof(double));
 	double *spa_m = malloc(2*data->NFFT*sizeof(double));
@@ -233,11 +241,11 @@ int main(int argc, char *argv[])
 			spa_dif[i][k] = 0.;	
 		}
 	}
-			
-	
-	double ep = 1.0e-4;
+				
+	double ep = 1.0e-6;
 	long iRe, iIm; 
 
+	data->under_samp = 10;
 	for (i=0; i<eb->NP; i++)
 	{
 		for (k=0; k<eb->NP; k++)
@@ -249,10 +257,12 @@ int main(int argc, char *argv[])
 		eb_m->params[i] -= ep;
 		map_array_to_params(eb_p);
 		map_array_to_params(eb_m);
+		set_Antenna(eb_p);
+		set_Antenna(eb_m);
 		
 		fill_spa_series(spa_p, eb_p, data);
 		fill_spa_series(spa_m, eb_m, data);
-		fprintf(stdout, "internal snr: %f\n", get_SNR(spa_m, data));
+		//fprintf(stdout, "internal snr: %f\n", get_SNR(spa_m, data));
 		
 		for (k=1; k<=data->NFFT/2/data->under_samp; k++)
 		{
@@ -289,10 +299,24 @@ int main(int argc, char *argv[])
 			eb->Fisher[k][i] = eb->Fisher[i][k];
 		}
 	}	
+	invert_matrix(eb->Fisher, eb->NP);
 	
-	fprintf(stdout, "Fisher error estimates\n");
+	fprintf(stdout, "\nFisher error estimates\n");
 	fprintf(stdout, "------------------------------------\n");
-	fprintf(stdout, "Mc perc. error: %e\n", sqrt(eb->Fisher[0][0]));
+	fprintf(stdout, "Mc   perc. error: %e\n", sqrt(eb->Fisher[0][0]));
+	fprintf(stdout, "F0   perc. error: %e\n", sqrt(eb->Fisher[1][1]));
+	fprintf(stdout, "c0   perc. error: %e\n", sqrt(eb->Fisher[2][2]));
+	fprintf(stdout, "lc     abs error: %e\n", sqrt(eb->Fisher[3][3]));
+	fprintf(stdout, "tc   perc. error: %e\n", sqrt(eb->Fisher[4][4]));
+	fprintf(stdout, "R    perc. error: %e\n", sqrt(eb->Fisher[5][5]));
+	fprintf(stdout, "beta   abs error: %e\n", sqrt(eb->Fisher[6][6]));
+	fprintf(stdout, "ci     abs error: %e\n", sqrt(eb->Fisher[7][7]));
+	fprintf(stdout, "phi    abs error: %e\n", sqrt(eb->Fisher[8][8]));
+	fprintf(stdout, "ctheta abs error: %e\n", sqrt(eb->Fisher[9][9]));
+	fprintf(stdout, "psi    abs error: %e\n", sqrt(eb->Fisher[10][10]));
+	
+	//fprintf(stdout, "\nvals: %e, %e, %e\n", eb->Fisher[5][5], eb->Fisher[8][8], eb->Fisher[9][9]);
+	
 	
 	fprintf(stdout, "\n==============================================================\n");
 	
@@ -334,7 +358,7 @@ void map_array_to_params(struct EccBinary *eb)
 	eb->s2beta = sin(2.*eb->beta);
 	eb->ciota  = cos(eb->iota);
 	eb->siota  = sin(eb->iota);
-	
+		
 	return;
 }
 
@@ -445,7 +469,7 @@ void setup_EccBinary(struct EccBinary *eb)
 	set_Antenna(eb);
 	
 	// set distance to source
-	eb->R  = 410.*1.0e6*PC/C; // 410 Mpc
+	eb->R  = 4.*1.0e6*PC/C; // 410 Mpc
 	eb->m1 = 10.*TSUN;
 	eb->m2 = 10.*TSUN;
 	set_m(eb);
@@ -455,15 +479,13 @@ void setup_EccBinary(struct EccBinary *eb)
 	
 	eb->eLSO = 0.01;   // LSO eccentricity
 	
-	eb->F0 = 3.;
-
 	eb->F0 = 3.0;
 	eb->e0 = 0.7;
 	eb->p0 = (1. - eb->e0*eb->e0)*pow(eb->m/PI2/PI2/eb->F0/eb->F0, 1./3.)/eb->m;
 	eb->c0 = pow(calc_sigma(eb->e0), 3./2.)*eb->F0;
 	eb->FLSO = pow((1. + eb->e0)/(6. + 2.*eb->e0), 3./2.)/PI2/eb->m;
  	
- 	fprintf(stdout, "e0, p0: %e %e\n", eb->e0, eb->p0);
+ 	fprintf(stdout, "e0, p0, F0: %f %f %f\n", eb->e0, eb->p0, eb->F0);
 	fprintf(stdout, "R: %e\n", eb->R);
 	fprintf(stdout, "F LSO: %.3f Hz\n", eb->FLSO);
 
@@ -621,6 +643,129 @@ void fill_spa_series_new(double *spa_series, struct Data *data, double *spa_0, s
 	}
 
 	return;
+}
+
+double invert_matrix(double **matrix, int N)
+{
+	int i,j;
+	double cond;
+
+	// Don't let errors kill the program (yikes)
+	gsl_set_error_handler_off ();
+	int err=0;
+
+	// Find eigenvectors and eigenvalues
+	gsl_matrix *GSLmatrix = gsl_matrix_alloc(N,N);
+	gsl_matrix *GSLinvrse = gsl_matrix_alloc(N,N);
+	gsl_matrix *cpy		  = gsl_matrix_alloc(N,N);
+	gsl_matrix *SVDinv	  = gsl_matrix_alloc(N,N);
+	gsl_matrix *Dmat	  = gsl_matrix_alloc(N,N);
+	gsl_matrix *temp      = gsl_matrix_alloc(N, N);
+
+	for(i=0; i<N; i++)
+	{
+		for(j=0; j<N; j++)
+		{
+			if(matrix[i][j]!=matrix[i][j])
+			{
+				fprintf(stdout, "error for parameters (%d, %d)\n", i, j);
+				fprintf(stderr,"WARNING: nan matrix element, now what?\n");
+			}
+			gsl_matrix_set(GSLmatrix,i,j,matrix[i][j]);
+			gsl_matrix_set(cpy,i,j,matrix[i][j]);
+		}
+	}
+
+	//////
+	//
+	//	Calculate the SVD and condition number
+	//
+	///////
+
+	gsl_matrix *V = gsl_matrix_alloc (N,N);
+	gsl_vector *D = gsl_vector_alloc (N);
+	gsl_vector *work = gsl_vector_alloc (N);
+
+	gsl_linalg_SV_decomp(cpy, V, D, work);
+
+
+	double max, min;
+	max = -0.1;
+	min = INFINITY;
+
+	for (i=0; i<N; i++)
+	{
+		if (gsl_vector_get(D,i) > max) max = gsl_vector_get(D,i);
+
+		if (gsl_vector_get(D,i) < min) min = gsl_vector_get(D,i);
+	}
+
+	cond = log10(max/min);
+	
+	
+	for (i=0; i<N; i++)
+	{
+		for (j=0; j<N; j++) 
+		{
+			if (i == j)
+			{
+				if (gsl_vector_get(D,i) < 1.0e-6) 
+				{
+					fprintf(stdout, "Near Singular value[%d]!!! ---> %e\n", i, gsl_vector_get(D,i));
+					gsl_matrix_set(Dmat, i, j, 0.);
+				} else
+				{
+					gsl_matrix_set(Dmat, i, j, 1./gsl_vector_get(D,i));
+				}
+				
+			} else 
+			{
+				gsl_matrix_set(Dmat, i, j, 0.);
+			}
+		}
+	
+	}
+
+	gsl_matrix_transpose(cpy);
+	gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, Dmat, cpy,   0.0, temp);
+	gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, V, temp, 0.0, SVDinv);
+	
+	
+	////////
+
+	gsl_permutation * permutation = gsl_permutation_alloc(N);
+
+	err += gsl_linalg_LU_decomp(GSLmatrix, permutation, &i);
+	err += gsl_linalg_LU_invert(GSLmatrix, permutation, GSLinvrse);
+
+	if(err>0)
+	{
+		fprintf(stderr,"WARNING: singluar matrix\n");
+		fflush(stderr);
+	}else
+	{
+		//copy covariance matrix back into Fisher
+		for(i=0; i<N; i++)
+		{
+			for(j=0; j<N; j++) 
+			{
+				matrix[i][j] = gsl_matrix_get(SVDinv, i, j);
+			}
+		}
+	}
+
+	gsl_vector_free(D);
+	gsl_vector_free(work);
+	gsl_matrix_free(V);
+	gsl_matrix_free(Dmat);
+	gsl_matrix_free(SVDinv);
+	gsl_matrix_free(temp);
+
+	gsl_matrix_free (GSLmatrix);
+	gsl_matrix_free (GSLinvrse);
+	gsl_permutation_free (permutation);
+
+	return cond;
 }
 
 

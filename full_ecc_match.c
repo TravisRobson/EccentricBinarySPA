@@ -20,9 +20,13 @@
 void setup_EccBinary(struct EccBinary *eb);
 void construct_Data(struct EccBinary *eb, struct Data *data);
 void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data);
-double find_max_tc(double *a, double *b, double *inv_ft, struct Data *data);
 void fill_num_series(double *num_series, struct Data *data);
 void fill_spa_series_new(double *spa_series, struct Data *data, double *spa_0, struct EccBinary *eb);
+void fill_SPA_matrix(double **spa_matrix, struct EccBinary *eb, struct Data *data);
+void spa_matrix_to_array(double **spa_matrix, double *spa_series, struct EccBinary *eb, struct Data *data);
+
+double find_max_tc(double *a, double *b, double *inv_ft, struct Data *data);
+
 
 #define PBSTR "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
 #define PBWIDTH 60
@@ -40,10 +44,10 @@ void printProgress(double percentage)
 int main(int argc, char *argv[])
 {		
 	int l     = 0;
-	int k_max = 30; 
-	int m_max = 30;
+	int k_max = 100; // for lc search
+	int m_max = 0;   // for tc search
 	
-	long i, k, m;
+	long i, j, k, m;
 	
 	double time_spent;
 	double snr, snr_spa, match;
@@ -57,6 +61,7 @@ int main(int argc, char *argv[])
 	double *inv_ft;
 	double *spa_series;
 	double *spa_0;
+	double **spa_mat;
 		
 	clock_t begin = clock();
 	clock_t end;
@@ -79,27 +84,36 @@ int main(int argc, char *argv[])
 		spa_series[i] = 0.;
 		spa_0[i]      = 0.;
 	}
-	fill_spa_series(spa_0, eb, data);
-	
-	
+	//fill_spa_series(spa_0, eb, data);
 	fill_num_series(num_series, data);
 	snr = get_SNR(num_series, data);
 	fprintf(stdout, "num SNR: %f\n\n", snr);
-
-	begin = clock();
 	
-	FILE *out_file;
-	out_file = fopen("test.dat", "w");
+	begin = clock();
+	spa_mat = malloc(eb->j_max*sizeof(double *));
+	for (j=0; j<eb->j_max; j++)
+	{
+		spa_mat[j] = malloc(2*data->NFFT*sizeof(double));
+	}
+	for (j=0; j<eb->j_max; j++)
+	{
+		for (i=0; i<2*data->NFFT; i++)
+		{
+			spa_mat[j][i] = 0.;
+		}
+	}
+	fill_SPA_matrix(spa_mat, eb, data);
+	spa_matrix_to_array(spa_mat, spa_0, eb, data);
 		
 	for (k=0; k<=k_max; k++)
 	{	
-		eb->tc = 0.;	// reset tc
-		fill_spa_series(spa_series, eb, data);
-		fill_spa_series(spa_0, eb, data);
+		eb->tc = 0.;	// reset tc	  
+		spa_matrix_to_array(spa_mat, spa_series, eb, data); // Bc lc has been updated
+		spa_matrix_to_array(spa_mat, spa_0, eb, data);		// Bc lc has been updated
 		
 		// iFFT to find tc which maximizes for current lc
-		eb->tc = -find_max_tc(num_series, spa_series, inv_ft, data);
-		eb->tc -= data->dt;
+		eb->tc  = -find_max_tc(num_series, spa_series, inv_ft, data);
+		eb->tc -=  data->dt;
 		
 		// perform local search for tc max
 		for (m=0; m<=m_max; m++)
@@ -115,11 +129,10 @@ int main(int argc, char *argv[])
 				tc_mm = eb->tc;
 				lc_mm = eb->lc;
 			} 
-			fprintf(out_file, "%e %e %e\n", eb->lc, eb->tc, fabs(match));
 			
 			// increment tc
 			eb->tc += 2.*data->dt/(double)m_max;
-			
+
 			// increment counter for loading bar
 			l++;
 			percent = (double)l/(double)((k_max+1)*(m_max+1));
@@ -128,18 +141,16 @@ int main(int argc, char *argv[])
 		// increment lc
 		eb->lc += PI2/(double)k_max;	
 	}
-	
-	fclose(out_file);
 
 	eb->lc = lc_mm;
 	eb->tc = tc_mm;
-	fill_spa_series(spa_series, eb, data);
+	spa_matrix_to_array(spa_mat, spa_series, eb, data);;
 	print_spa(spa_series, fopen("spa.dat", "w"), data);
 	
 	snr_spa = get_SNR(spa_series, data);
-	fprintf(stdout, "\nFF: %f\n",   max_match);
-	fprintf(stdout, "max tc: %e\n", tc_mm);
-	fprintf(stdout, "max lc: %e\n", lc_mm);
+	fprintf(stdout, "\nFF: %f\n",    max_match);
+	fprintf(stdout, "max tc: %e\n",  tc_mm);
+	fprintf(stdout, "max lc: %e\n",  lc_mm);
 	fprintf(stdout, "spa SNR: %f\n", snr_spa);
 	
 	end = clock();
@@ -154,9 +165,96 @@ int main(int argc, char *argv[])
 	
 	free(eb);
 	free(data);
+	for (i=0; i<eb->j_max; i++)
+	{
+		free(spa_mat[i]);
+	}
 
 
 	return 0;
+}
+
+void spa_matrix_to_array(double **spa_matrix, double *spa_series, struct EccBinary *eb, struct Data *data)
+{
+	long i, j, iRe, iIm;
+		
+	double arg;
+	
+	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+	{
+		iRe = 2*(i*data->under_samp);
+		iIm = 2*(i*data->under_samp)+1;
+
+		spa_series[iRe] = 0.;
+		spa_series[iIm] = 0.;
+	}
+		
+	if (eb->lc == 0.)
+	{
+		for (j=0; j<eb->j_max; j++)
+		{	
+			for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+			{
+				iRe = 2*(i*data->under_samp);
+				iIm = 2*(i*data->under_samp)+1;
+		
+				spa_series[iRe] += spa_matrix[j][iRe];
+				spa_series[iIm] += spa_matrix[j][iIm];
+			}
+		}
+	}else 
+	{
+		for (j=0; j<eb->j_max; j++)
+		{	
+			arg = (double)(j+1)*eb->lc;
+			for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+			{
+				iRe = 2*(i*data->under_samp);
+				iIm = 2*(i*data->under_samp)+1;
+		
+				spa_series[iRe] += spa_matrix[j][iRe]*cos(arg) - spa_matrix[j][iIm]*sin(arg);
+				spa_series[iIm] += spa_matrix[j][iRe]*sin(arg) + spa_matrix[j][iIm]*cos(arg);
+			}
+		}
+	}
+	
+	return;
+}
+
+void fill_SPA_matrix(double **spa_matrix, struct EccBinary *eb, struct Data *data)
+{
+	int temp_j_min, temp_j_max;
+	
+	long i, j, iRe, iIm;
+	
+	double f;
+	double df = 1./(double)data->NFFT/data->dt;
+	double spaRe, spaIm;
+	
+	temp_j_min = eb->j_min;
+	temp_j_max = eb->j_max;
+	
+	for (j=0; j<temp_j_max; j++)
+	{ 
+		eb->j_min = j+1;
+		eb->j_max = j+1;
+		for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+		{
+			iRe = 2*(i*data->under_samp);
+			iIm = 2*(i*data->under_samp)+1;
+		
+			f = (double)(i*data->under_samp)*df;
+		
+			get_eccSPA(eb, f, &spaRe, &spaIm);
+
+			spa_matrix[j][iRe] = spaRe;
+			spa_matrix[j][iIm] = spaIm;
+		}
+	}
+	eb->j_min = temp_j_min;
+	eb->j_max = temp_j_max;
+
+	return;
 }
 
 void setup_EccBinary(struct EccBinary *eb)
@@ -186,8 +284,6 @@ void setup_EccBinary(struct EccBinary *eb)
 	set_mu(eb);
 	
 	eb->eLSO = 0.01;   // LSO eccentricity
-	
-	eb->F0 = 3.;
 
 	eb->F0 = 3.0;
 	eb->e0 = 0.7;
@@ -236,7 +332,7 @@ void construct_Data(struct EccBinary *eb, struct Data *data)
 	clock_t end = clock();
 	time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
 	
-	data->under_samp = 100;
+	data->under_samp = 1;
 	data->NFFT     = (long)(pow(2, floor( log((double)(data->N))/log(2.)  ) + 1.));
 	data->left_pad = (long)((data->NFFT - data->N)/2);
 	
@@ -251,7 +347,7 @@ void construct_Data(struct EccBinary *eb, struct Data *data)
 
 void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data)
 {
-	long i, iRe, iIm;
+ 	long i, iRe, iIm;
 	
 	double f;
 	double df = 1./(double)data->NFFT/data->dt;
@@ -259,7 +355,7 @@ void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data
 	
 	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
 	{
-		iRe = 2*i*data->under_samp;
+		iRe = 2*(i*data->under_samp);
 		iIm = 2*(i*data->under_samp)+1;
 		
 		f = (double)(i*data->under_samp)*df;
@@ -269,7 +365,7 @@ void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data
 		spa_series[iRe] = spaRe;
 		spa_series[iIm] = spaIm;
 	}
-
+	
 	return;
 }
 

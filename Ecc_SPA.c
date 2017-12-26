@@ -289,7 +289,7 @@ void get_harmonic(struct EccBinary *eb, int j, double f, double *hjRe, double *h
 
 	*hjIm = amp*(-(eb->Fp*Spj + eb->Fc*Scj)*cos(phase + PIon4) 
 	             +(eb->Fp*Cpj + eb->Fc*Ccj)*sin(phase + PIon4) );	
-	//fprintf(stdout, "test: %e\n", phase);
+	//fprintf(stdout, "test: %e\n", eb->Fc*eb->Fp);
 	return;
 }
 

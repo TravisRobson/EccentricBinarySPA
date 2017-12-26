@@ -11,6 +11,10 @@ struct EccBinary
 	gsl_interp_accel *e_acc;
 	gsl_spline *e_spline;
 	
+	double *params;
+	int NP;
+	double **Fisher;
+	
 	double Jj, Jjm1, Jjp1;
 	double inve;
 	
