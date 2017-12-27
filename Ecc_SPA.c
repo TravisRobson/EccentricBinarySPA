@@ -88,7 +88,7 @@ double get_Scj(struct EccBinary *eb, double j, double e)
 	return 8.*c2b*ci*sqrt(1. - e*e)*(a*Jjm1 + b*Jj)*eb->inve*eb->inve;
 }
 
-double get_es(struct EccBinary *eb, int j, double f)
+double get_es(struct EccBinary *eb, double alpha)
 {
 	// bisection method implementation
 	double RHS;			// RHS of equation to be inverted
@@ -101,7 +101,7 @@ double get_es(struct EccBinary *eb, int j, double f)
 	
 	error = 1.;		// absolute error
 	
-	RHS    = pow(eb->c0*(double)(j)/f, 2./3.);
+	RHS    = pow(alpha, 2./3.);
 	
 	double a, b;
 	double c1, fc1;
@@ -131,7 +131,15 @@ double get_es(struct EccBinary *eb, int j, double f)
 
 double interp_es(struct EccBinary *eb, double alpha)
 {
-	return gsl_spline_eval(eb->e_spline, alpha, eb->e_acc);
+	//return gsl_spline_eval(eb->e_spline, alpha, eb->e_acc);
+	if (alpha < 0.000068257 || alpha > 13152.153520857013)
+	{
+		return get_es(eb, alpha);
+	} else 
+	{
+		return gsl_spline_eval(eb->e_spline, alpha, eb->e_acc);
+	}
+	
 }
 
 double term(int r, double x)
@@ -249,14 +257,15 @@ void get_harmonic(struct EccBinary *eb, int j, double f, double *hjRe, double *h
 	eb->inve = 1./es;
 	e = es;
 
-	K1 = gsl_sf_bessel_Kn(1./3., jd*(-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))*eb->inve)));
-	K2 = gsl_sf_bessel_Kn(2./3., jd*(-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))*eb->inve)));
 
 	if (e < 0.8){
 		eb->Jj   = gsl_sf_bessel_Jn(j,   jd*e);
 		eb->Jjm1 = gsl_sf_bessel_Jn(j-1, jd*e);
 		eb->Jjp1 = gsl_sf_bessel_Jn(j+1, jd*e);
 	}else {
+	
+		K1 = gsl_sf_bessel_Kn(1./3., jd*(-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))*eb->inve)));
+		K2 = gsl_sf_bessel_Kn(2./3., jd*(-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))*eb->inve)));	
 	eb->Jj = pow(2., 1./3.)*pow(3.,1./6.)*pow(pow(-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))/e), 2./3.)
 	         /(1 - pow(e,2)),0.25)*((K1*pow(-sqrt(1 - pow(e,2)) + log((1. + sqrt(1 - pow(e,2)))/e),1./3.))/(pow(2,1./3.)*pow(3,1./6.)*M_PI) 
 	         + (K2*pow(-sqrt(1 - pow(e,2)) + log((1 + sqrt(1 - pow(e,2)))/e),1./3.)*((-5/(3.*pow(1 - pow(e,2),1.5)) 

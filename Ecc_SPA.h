@@ -11,7 +11,7 @@ double get_Ccj(struct EccBinary *eb, double j, double e);
 double get_Scj(struct EccBinary *eb, double j, double e);
 
 // invert f(e;j;c0) relation, i.e. get stationary eccentricity
-double get_es(struct EccBinary *eb, int j, double f);
+double get_es(struct EccBinary *eb, double alpha);
 
 // calc It(e) and Il(e) (with Hypergeometric functions or our approximation)
 double get_It(struct EccBinary *eb, double e);
