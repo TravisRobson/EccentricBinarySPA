@@ -13,6 +13,9 @@
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_eigen.h>
 
+#include <gsl/gsl_rng.h>
+#include <gsl/gsl_randist.h>
+
 
 #include "Ecc_SPA.h"
 #include "Ecc_Binary.h"
@@ -31,9 +34,11 @@ void fill_SPA_matrix(double **spa_matrix, struct EccBinary *eb, struct Data *dat
 void spa_matrix_to_array(double **spa_matrix, double *spa_series, struct EccBinary *eb, struct Data *data);
 void fill_Fisher(struct EccBinary *eb, struct Data *data);
 void map_array_to_params(struct EccBinary *eb);
-double invert_matrix(double **matrix, int N);
+void matrix_eigenstuff(double **matrix, double **evector, double *evalue, int N);
 
+double invert_matrix(double **matrix, int N);
 double find_max_tc(double *a, double *b, double *inv_ft, struct Data *data);
+double get_logL(double *a, double *b, struct Data *data);
 
 
 #define PBSTR "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
@@ -245,7 +250,7 @@ int main(int argc, char *argv[])
 	double ep = 1.0e-6;
 	long iRe, iIm; 
 
-	data->under_samp = 10;
+	data->under_samp = 500;
 	for (i=0; i<eb->NP; i++)
 	{
 		for (k=0; k<eb->NP; k++)
@@ -299,24 +304,202 @@ int main(int argc, char *argv[])
 			eb->Fisher[k][i] = eb->Fisher[i][k];
 		}
 	}	
-	invert_matrix(eb->Fisher, eb->NP);
+// 	invert_matrix(eb->Fisher, eb->NP);
+// 	
+// 	fprintf(stdout, "\nFisher error estimates\n");
+// 	fprintf(stdout, "------------------------------------\n");
+// 	fprintf(stdout, "Mc   perc. error: %e\n", sqrt(eb->Fisher[0][0]));
+// 	fprintf(stdout, "F0   perc. error: %e\n", sqrt(eb->Fisher[1][1]));
+// 	fprintf(stdout, "c0   perc. error: %e\n", sqrt(eb->Fisher[2][2]));
+// 	fprintf(stdout, "lc     abs error: %e\n", sqrt(eb->Fisher[3][3]));
+// 	fprintf(stdout, "tc   perc. error: %e\n", sqrt(eb->Fisher[4][4]));
+// 	fprintf(stdout, "R    perc. error: %e\n", sqrt(eb->Fisher[5][5]));
+// 	fprintf(stdout, "beta   abs error: %e\n", sqrt(eb->Fisher[6][6]));
+// 	fprintf(stdout, "ci     abs error: %e\n", sqrt(eb->Fisher[7][7]));
+// 	fprintf(stdout, "phi    abs error: %e\n", sqrt(eb->Fisher[8][8]));
+// 	fprintf(stdout, "ctheta abs error: %e\n", sqrt(eb->Fisher[9][9]));
+// 	fprintf(stdout, "psi    abs error: %e\n", sqrt(eb->Fisher[10][10]));
 	
-	fprintf(stdout, "\nFisher error estimates\n");
-	fprintf(stdout, "------------------------------------\n");
-	fprintf(stdout, "Mc   perc. error: %e\n", sqrt(eb->Fisher[0][0]));
-	fprintf(stdout, "F0   perc. error: %e\n", sqrt(eb->Fisher[1][1]));
-	fprintf(stdout, "c0   perc. error: %e\n", sqrt(eb->Fisher[2][2]));
-	fprintf(stdout, "lc     abs error: %e\n", sqrt(eb->Fisher[3][3]));
-	fprintf(stdout, "tc   perc. error: %e\n", sqrt(eb->Fisher[4][4]));
-	fprintf(stdout, "R    perc. error: %e\n", sqrt(eb->Fisher[5][5]));
-	fprintf(stdout, "beta   abs error: %e\n", sqrt(eb->Fisher[6][6]));
-	fprintf(stdout, "ci     abs error: %e\n", sqrt(eb->Fisher[7][7]));
-	fprintf(stdout, "phi    abs error: %e\n", sqrt(eb->Fisher[8][8]));
-	fprintf(stdout, "ctheta abs error: %e\n", sqrt(eb->Fisher[9][9]));
-	fprintf(stdout, "psi    abs error: %e\n", sqrt(eb->Fisher[10][10]));
+	////////////////////////	MCMC time	/////////////////////////////
+	long m;
+	long NMCMC = (long)1.0e5;
+
+	// CONSTRUCT EIGENBS FOR FISHER JUMPS
+	double *evals, **evecs;
+	evals = malloc(eb->NP*sizeof(double));
+	evecs = malloc(eb->NP*sizeof(double *));
+	for (i=0; i<eb->NP; i++) evecs[i] = malloc(eb->NP*sizeof(double));
+	for (i=0; i<eb->NP; i++)
+	{
+		for (k=0; k<eb->NP; k++) evecs[i][k] = 0.;
+		evals[i] = 0.;
+	}
+//	invert_matrix(eb->Fisher, eb->NP); 
+    matrix_eigenstuff(eb->Fisher, evecs, evals, eb->NP); // fisher matrix gets inverted here I believe
+
+	for (i=0; i<eb->NP; i++) fprintf(stdout, "eval[%ld]: %e\n", i, evals[i]);
+	for (i=0; i<eb->NP; i++) 
+	{
+		for (k=0; k<eb->NP; k++) fprintf(stdout, "evec[%ld][%ld]: %e\n", i, k, evecs[i][k]);
+	}	
+
+	// SET UP SEEDS AND RANDOM NUMBER BS
 	
-	//fprintf(stdout, "\nvals: %e, %e, %e\n", eb->Fisher[5][5], eb->Fisher[8][8], eb->Fisher[9][9]);
+	int seed = atoi(argv[1]);
+	gsl_rng_env_setup();
+	const gsl_rng_type *TT = gsl_rng_default;
+	gsl_rng *r = gsl_rng_alloc(TT);
+	gsl_rng_set(r, seed);
 	
+	struct EccBinary *eb_x = malloc(sizeof(struct EccBinary));
+	struct EccBinary *eb_y = malloc(sizeof(struct EccBinary));
+	setup_interp(eb_x);
+	setup_interp(eb_y);
+	
+	eb_x->FLSO = eb->FLSO;
+	eb_y->FLSO = eb->FLSO;
+	
+	eb_x->j_min = eb->j_min;
+	eb_y->j_min = eb->j_min;
+	eb_x->j_max = eb->j_max;
+	eb_y->j_max = eb->j_max;
+	
+	eb_x->NP = 11;
+	eb_y->NP = 11;
+	eb_x->params = malloc(eb->NP*sizeof(double));
+	eb_y->params = malloc(eb->NP*sizeof(double));
+	for (i=0; i<eb->NP; i++)
+	{
+		eb_x->params[i] = 0.;
+		eb_y->params[i] = 0.;
+	}
+	for (i=0; i<eb->NP; i++)
+	{
+		eb_x->params[i] = eb->params[i];
+		eb_y->params[i] = eb->params[i];
+	}
+	map_array_to_params(eb_x);
+	map_array_to_params(eb_y);
+	set_Antenna(eb_x);
+	set_Antenna(eb_y);
+	
+	FILE *out_file;
+	double accept = 0.;
+	out_file = fopen("chain.dat", "w");
+	int meet_priors = 1;
+	long itr = 0;
+	
+	struct EccBinary *eb_max = malloc(sizeof(struct EccBinary));
+	setup_interp(eb_max);
+	eb_max->FLSO = eb->FLSO;
+	eb_max->j_min = eb->j_min;
+	eb_max->j_max = eb->j_max;
+	eb_max->NP = 11;
+	eb_max->params = malloc(eb->NP*sizeof(double));
+	for (i=0; i<eb->NP; i++)
+	{
+		eb_max->params[i] = 0.;
+	}
+	for (i=0; i<eb->NP; i++)
+	{
+		eb_max->params[i] = eb->params[i];
+	}
+	map_array_to_params(eb_max);
+	set_Antenna(eb_max);
+
+	double logL_max = -10000.;
+	double logLx, logLy, loga;
+	
+	logLx = get_logL(num_series, spa_series, data);
+	fprintf(stdout, "\ninitial logLx: %f\n\n", logLx);
+	
+	double *spa_x, *spa_y;
+	spa_x = malloc(2*data->NFFT*sizeof(double));
+	spa_y = malloc(2*data->NFFT*sizeof(double));
+	for (i=0; i<2*data->NFFT; i++)
+	{
+		spa_x[i] = 0.;
+		spa_y[i] = 0.;
+	}
+	
+	for (m=0; m<NMCMC; m++)
+	{
+		if (m%(int)(NMCMC*0.01) == 0 && m!=0)
+		{
+			fprintf(stdout, "Percent Complete: %.0f %%		", (double)m/(double)NMCMC*100.);
+			fprintf(stdout, "[%ld]Acceptance Rate: %.1f %%\n",   m,    accept/(double)m*100);
+		} 
+		
+		l = (int)(gsl_rng_uniform(r)*(double)eb->NP);
+		for (k=0; k<eb->NP; k++)
+		{
+			eb_y->params[k] = eb_x->params[k] + gsl_ran_gaussian(r, 1.)*evecs[k][l]/sqrt(evals[l]*eb->NP);//*eb->NP/TT);
+		}
+		
+		if (eb_y->params[0]  <   log(0.1)    || eb_y->params[0]  > log(50))    meet_priors = 0; // Mc
+		if (eb_y->params[1]  <   log(0.001)  || eb_y->params[1]  > log(50))    meet_priors = 0; // F0 
+		if (eb_y->params[2]  <   log(0.001)  || eb_y->params[2]  > log(50))    meet_priors = 0; // c0
+		if (eb_y->params[3]  <=  0.          || eb_y->params[3]  > PI2)        meet_priors = 0; // lc
+		if (eb_y->params[4]  <   log(1.0e-4) || eb_y->params[4]  > log(100))   meet_priors = 0; // tc
+		if (eb_y->params[5]  <   log(1.0e-6) || eb_y->params[5]  > log(1.0e6)) meet_priors = 0; // R
+		if (eb_y->params[6]  <=  0.          || eb_y->params[6]  > PI2)        meet_priors = 0; // beta
+		if (eb_y->params[7]  <= -1.          || eb_y->params[7]  > 1.)         meet_priors = 0; // ciota
+		if (eb_y->params[8]  <=  0.          || eb_y->params[8]  > PI2)        meet_priors = 0; // phi
+		if (eb_y->params[9]  <=  -1.         || eb_y->params[9]  > 1.)         meet_priors = 0; // ctheta
+		if (eb_y->params[10] <=  0.          || eb_y->params[10] > M_PI)       meet_priors = 0; // psi
+
+		//for (l=0; l<eb->NP; l++) fprintf(stdout, "y params[%d]: %f\n", l, eb_y->params[l]); 
+		
+		if (meet_priors == 1)
+		{	// calculate signal associated with proposed source
+			map_array_to_params(eb_y);
+			set_Antenna(eb_y);
+			fill_spa_series(spa_y, eb_y, data);
+			logLy = get_logL(num_series, spa_y, data);	
+			loga = log(gsl_rng_uniform(r));	
+		}
+		
+		if (loga < (logLy - logLx) && meet_priors == 1)
+		{
+			accept += 1.;
+			for (i=0; i<eb->NP; i++)
+			{
+				eb_x->params[i] = eb_y->params[i];
+			}
+			map_array_to_params(eb_x);
+			set_Antenna(eb_x);
+			logLx = logLy;
+			if (logLx > logL_max)
+			{
+				logL_max = logLx;
+				for (i=0; i<eb->NP; i++)
+				{
+					eb_max->params[i] = eb_x->params[i];
+				}
+				map_array_to_params(eb_max);
+				set_Antenna(eb_max);
+			}
+		}
+		itr += 1;
+
+		if (itr%10 == 0)
+		{
+			fprintf(out_file, "%ld %.12g ", itr/10, logLx);
+			for (l=0; l<eb->NP; l++)
+			{
+				fprintf(out_file, "%.12g ", eb_x->params[l]);
+			}
+			fprintf(out_file, "\n");
+			
+		}
+		meet_priors = 1; // reset
+	}
+	fclose(out_file);
+	
+	fprintf(stdout, "\n[%ld]Acceptance rate: %.2f%%\n", m, 100.*accept/itr);
+	fprintf(stdout, "logL_max: %f\n", logL_max);
+	
+		
 	
 	fprintf(stdout, "\n==============================================================\n");
 	
@@ -338,6 +521,35 @@ int main(int argc, char *argv[])
 	}
 
 	return 0;
+}
+
+double get_logL(double *a, double *b, struct Data *data)
+{
+	long i, iRe, iIm;
+	
+	double logL;
+	
+	double *dif;
+	
+	dif = malloc(2*data->NFFT*sizeof(double));
+	
+	for (i=0; i<2*data->NFFT; i++)
+	{
+		dif[i] = 0.;
+	} 
+	
+	for (i=0; i<=data->NFFT/2/data->under_samp; i++)
+	{
+		iRe = 2*i*data->under_samp;
+		iIm = 2*(i*data->under_samp)+1;
+		
+		dif[iRe] = a[iRe] - b[iRe];
+		dif[iIm] = a[iIm] - b[iIm];
+	}
+	
+	logL = -0.5*get_overlap(dif, dif, data);
+
+	return logL;
 }
 
 void map_array_to_params(struct EccBinary *eb)
@@ -480,7 +692,7 @@ void setup_EccBinary(struct EccBinary *eb)
 	eb->eLSO = 0.01;   // LSO eccentricity
 	
 	eb->F0 = 3.0;
-	eb->e0 = 0.8;
+	eb->e0 = 0.7;
 	eb->p0 = (1. - eb->e0*eb->e0)*pow(eb->m/PI2/PI2/eb->F0/eb->F0, 1./3.)/eb->m;
 	eb->c0 = pow(calc_sigma(eb->e0), 3./2.)*eb->F0;
 	eb->FLSO = pow((1. + eb->e0)/(6. + 2.*eb->e0), 3./2.)/PI2/eb->m;
@@ -492,7 +704,7 @@ void setup_EccBinary(struct EccBinary *eb)
 	eb->lc = 0.;
 	eb->tc = 0.;
 	
-	eb->j_max = 100;
+	eb->j_max = 20;
 	eb->j_min = 1;
 	
 	return;
@@ -768,5 +980,89 @@ double invert_matrix(double **matrix, int N)
 	return cond;
 }
 
+void matrix_eigenstuff(double **matrix, double **evector, double *evalue, int N)
+{
+	int i,j;
 
+	// Don't let errors kill the program (yikes)
+	gsl_set_error_handler_off ();
+	int err=0;
+
+	// Find eigenvectors and eigenvalues
+	gsl_matrix *GSLfisher = gsl_matrix_alloc(N,N);
+	gsl_matrix *GSLcovari = gsl_matrix_alloc(N,N);
+	gsl_matrix *GSLevectr = gsl_matrix_alloc(N,N);
+	gsl_vector *GSLevalue = gsl_vector_alloc(N);
+
+	for(i=0; i<N; i++)
+	{
+		for(j=0; j<N; j++)
+		{
+			if(matrix[i][j]!= matrix[i][j])fprintf(stderr,"WARNING: nan matrix element, now what?\n");
+			gsl_matrix_set(GSLfisher, i, j, matrix[i][j]);
+		}
+	}
+
+	// sort and put them into evec
+	gsl_eigen_symmv_workspace * workspace = gsl_eigen_symmv_alloc (N);
+	gsl_permutation * permutation = gsl_permutation_alloc(N);
+	err += gsl_eigen_symmv (GSLfisher, GSLevalue, GSLevectr, workspace);
+	err += gsl_eigen_symmv_sort (GSLevalue, GSLevectr, GSL_EIGEN_SORT_ABS_ASC);
+
+	// eigenvalues destroy matrix
+	for(i=0; i<N; i++) for(j=0; j<N; j++) gsl_matrix_set(GSLfisher, i, j, matrix[i][j]);
+
+	err += gsl_linalg_LU_decomp(GSLfisher, permutation, &i);
+	err += gsl_linalg_LU_invert(GSLfisher, permutation, GSLcovari);
+
+	if(err>0)
+	{
+		for(i=0; i<N; i++)for(j=0; j<N; j++)
+		{
+			evector[i][j] = 0.0;
+			if(i==j)
+			{
+				evector[i][j]=1.0;
+				evalue[i]=1./matrix[i][j];
+			}
+		}
+
+	}
+	else
+	{
+		//unpack arrays from gsl inversion
+		for(i=0; i<N; i++)
+		{
+			evalue[i] = gsl_vector_get(GSLevalue, i);
+			for(j=0; j<N; j++)
+			{
+				evector[i][j] = gsl_matrix_get(GSLevectr, i, j);
+				if(evector[i][j] != evector[i][j]) evector[i][j] = 0.;
+			}
+		}
+		
+		//copy covariance matrix back into Fisher
+		for(i=0; i<N; i++)
+		{
+			for(j=0; j<N; j++)
+			{
+				matrix[i][j] = gsl_matrix_get(GSLcovari, i, j);
+			}
+		}
+
+		//cap minimum size eigenvalues
+		for(i=0; i<N; i++)
+		{
+			if(evalue[i] != evalue[i] || evalue[i] <= 10.0) evalue[i] = 10.;
+			//fprintf(stdout, "here\n");
+		}
+	}
+
+	gsl_vector_free (GSLevalue);
+	gsl_matrix_free (GSLfisher);
+	gsl_matrix_free (GSLcovari);
+	gsl_matrix_free (GSLevectr);
+	gsl_eigen_symmv_free (workspace);
+	gsl_permutation_free (permutation);
+}
 

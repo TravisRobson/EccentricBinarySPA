@@ -6,7 +6,7 @@ CCFLAGS += -g -Wall -std=gnu99 -fmax-errors=5 -O2#-Werror
 
 OBJS = Ecc_SPA.o Ecc_Binary.o Ecc_Adiabat_Evol.o Detector.o Ecc_IO.o Ecc_Math.o
 
-all : $(OBJS) num_test no_RR_test harm_match spa_harm full_match num_spa_harms fisher
+all : $(OBJS) num_test no_RR_test harm_match spa_harm full_match num_spa_harms fisher mcmc
 
 Ecc_SPA.o : Ecc_SPA.c Ecc_SPA.h Ecc_Binary.h Constants.h
 	$(CC) $(CCFLAGS) -c Ecc_SPA.c
@@ -49,5 +49,8 @@ num_spa_harms : $(OBJS) num_SPA_harms.c
 fisher : $(OBJS) fisher_ecc.c
 	$(CC) $(CCFLAGS) -o fisher fisher_ecc.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
 	
+mcmc : $(OBJS) mcmc_ecc.c
+	$(CC) $(CCFLAGS) -o mcmc mcmc_ecc.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
+	
 clean: 
-	rm *.o num_test no_RR_test harm_match spa_harm full_match num_spa_harms fisher
+	rm *.o num_test no_RR_test harm_match spa_harm full_match num_spa_harms fisher mcmc
