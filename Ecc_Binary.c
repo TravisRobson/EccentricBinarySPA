@@ -199,6 +199,28 @@ double get_hc(struct EccBinary *eb, double phi, double p, double e)
 	return hc;
 }
 
+void map_array_to_params(struct EccBinary *eb)
+{
+	eb->Mc    = exp(eb->params[0])*TSUN;
+	eb->F0    = exp(eb->params[1])*10.;
+	eb->c0    = exp(eb->params[2])*1.;
+	eb->lc    = eb->params[3];
+	eb->tc    = -exp(eb->params[4])*10.;
+	eb->R     = exp(eb->params[5])*(1.0e6*PC/C);
+	eb->beta  = eb->params[6];
+	eb->iota  = acos(eb->params[7]);
+	eb->phi   = eb->params[8];
+	eb->theta = acos(eb->params[9]);
+	eb->psi   = eb->params[10];
+//	eb->FLSO  = exp(eb->params[11])*100.;
+	
+	eb->c2beta = cos(2.*eb->beta);
+	eb->s2beta = sin(2.*eb->beta);
+	eb->ciota  = cos(eb->iota);
+	eb->siota  = sin(eb->iota);
+		
+	return;
+}
 
 
 

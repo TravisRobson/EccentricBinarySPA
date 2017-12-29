@@ -62,5 +62,6 @@ double get_e(double x);
 double get_hp(struct EccBinary *eb, double phi, double p, double e);
 double get_hc(struct EccBinary *eb, double phi, double p, double e);
 
+void map_array_to_params(struct EccBinary *eb);
 
 #endif /* Ecc_Binary_h */

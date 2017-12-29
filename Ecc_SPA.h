@@ -2,6 +2,7 @@
 #define Ecc_SPA_h
 
 #include "Ecc_Binary.h"
+#include "Ecc_IO.h"
 
 
 // calculate the mean anomaly Fourier series coefficients
@@ -36,5 +37,9 @@ double term(int r, double x);
 void setup_interp(struct EccBinary *eb);
 double interp_phase(struct EccBinary *eb, double j, double alpha, double f);
 double interp_es(struct EccBinary *eb, double alpha);
+void fill_spa_series_new(double *spa_series, struct Data *data, double *spa_0, struct EccBinary *eb);
+void fill_SPA_matrix(double **spa_matrix, struct EccBinary *eb, struct Data *data);
+void spa_matrix_to_array(double **spa_matrix, double *spa_series, struct EccBinary *eb, struct Data *data);
+void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data);
 
 #endif /* Ecc_SPA_h */
