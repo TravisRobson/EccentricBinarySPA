@@ -13,7 +13,7 @@
 #include "Ecc_Binary.h"
 #include "Constants.h"
 #include "Ecc_IO.h"
-
+#include "Ecc_Math.h"
 
 double get_Cpj(struct EccBinary *eb, double j, double e)
 {
@@ -392,7 +392,6 @@ void setup_interp(struct EccBinary *eb)
 	eb->e_spline = e_spline;
 	eb->e_acc = e_acc;
 	gsl_spline_init(eb->e_spline, x, e_vec, n);
-	fprintf(stdout, "interpolated\n");
 		
 	free(x);
 	free(psi);
@@ -530,7 +529,123 @@ void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data
 	return;
 }
 
+void calc_Fisher(struct EccBinary *eb, struct Data *data)
+{	
+	long iRe, iIm; 
+	long i, k;
+	
+	double ep = 1.0e-6;
+	
+	double *spa_p, *spa_m, **spa_dif;
+	
+	struct EccBinary *eb_p = malloc(sizeof(struct EccBinary));
+	struct EccBinary *eb_m = malloc(sizeof(struct EccBinary));
+	
+	eb_p->NP = eb->NP;
+	eb_m->NP = eb->NP;
+	
+	eb->Fisher = malloc(eb->NP*sizeof(double *));
+	for (i=0; i<eb->NP; i++) eb->Fisher[i] = malloc(eb->NP*sizeof(double));
+	
+	eb_p->params = malloc(eb_p->NP*sizeof(double));
+	eb_m->params = malloc(eb_m->NP*sizeof(double));
+	
+	spa_p   = malloc(2*data->NFFT*sizeof(double));
+	spa_m   = malloc(2*data->NFFT*sizeof(double));
+	spa_dif = malloc(eb->NP*sizeof(double *));
+	for (i=0; i<eb->NP; i++) spa_dif[i] = malloc(2*data->NFFT*sizeof(double));
 
+	for (i=0; i<eb->NP; i++)
+	{
+		for (k=0; k<eb->NP; k++) eb->Fisher[i][k] = 0.;
+	}
+	for (i=0; i<eb->NP; i++)
+	{
+		eb_p->params[i] = 0.;
+		eb_m->params[i] = 0.;
+	}
+	for (i=0; i<2*data->NFFT; i++)
+	{
+		spa_p[i]   = 0.;
+		spa_m[i]   = 0.;
+	}
+	for (i=0; i<eb->NP; i++)
+	{
+		for (k=0; k<2*data->NFFT; k++) spa_dif[i][k] = 0.;
+	}
+
+	setup_interp(eb_p);
+	setup_interp(eb_m);
+	
+	eb_p->FLSO  = eb->FLSO;
+	eb_m->FLSO  = eb->FLSO;
+	eb_p->j_min = eb->j_min;
+	eb_m->j_min = eb->j_min;
+	eb_p->j_max = eb->j_max;
+	eb_m->j_max = eb->j_max;
+
+	for (i=0; i<eb->NP; i++)
+	{
+		eb_p->params[i] = eb->params[i];
+		eb_m->params[i] = eb->params[i];
+	}
+	map_array_to_params(eb_p);
+	map_array_to_params(eb_m);
+	set_Antenna(eb_p);
+	set_Antenna(eb_m);
+	
+	for (i=0; i<eb->NP; i++)
+	{
+		for (k=0; k<eb->NP; k++)
+		{
+			eb_p->params[k] = eb->params[k];
+			eb_m->params[k] = eb->params[k];
+		}
+		eb_p->params[i] += ep;
+		eb_m->params[i] -= ep;
+		map_array_to_params(eb_p);
+		map_array_to_params(eb_m);
+		set_Antenna(eb_p);
+		set_Antenna(eb_m);
+		
+		fill_spa_series(spa_p, eb_p, data);
+		fill_spa_series(spa_m, eb_m, data);
+
+		for (k=1; k<=data->NFFT/2/data->under_samp; k++)
+		{
+			iRe = 2*(k*data->under_samp);
+			iIm = 2*(k*data->under_samp)+1;
+		
+			spa_dif[i][iRe] = (spa_p[iRe] - spa_m[iRe])/(2.*ep);
+			spa_dif[i][iIm] = (spa_p[iIm] - spa_m[iIm])/(2.*ep);
+		}
+	}
+	
+	free(spa_p);
+	free(spa_m);
+	free(eb_p->params);
+	free(eb_m->params);
+	free(eb_p);
+	free(eb_m);
+
+	for (i=0; i<eb->NP; i++)
+	{
+		for (k=i; k<eb->NP; k++)
+		{
+			eb->Fisher[i][k] = get_overlap(spa_dif[i], spa_dif[k], data);
+		}
+	}
+	for (i=0; i<eb->NP; i++) free(spa_dif[i]);
+	
+	// use symmetry to populate lower triangle
+	for (i=0; i<eb->NP; i++)
+	{
+		for (k=i; k<eb->NP; k++) eb->Fisher[k][i] = eb->Fisher[i][k];
+
+	}		
+
+	return;
+}
 
 
 

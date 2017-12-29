@@ -41,5 +41,6 @@ void fill_spa_series_new(double *spa_series, struct Data *data, double *spa_0, s
 void fill_SPA_matrix(double **spa_matrix, struct EccBinary *eb, struct Data *data);
 void spa_matrix_to_array(double **spa_matrix, double *spa_series, struct EccBinary *eb, struct Data *data);
 void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data);
+void calc_Fisher(struct EccBinary *eb, struct Data *data);
 
 #endif /* Ecc_SPA_h */

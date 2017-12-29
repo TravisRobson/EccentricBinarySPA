@@ -14,6 +14,7 @@ struct EccBinary
 	double *params;
 	int NP;
 	double **Fisher;
+	double *evals, **evecs;
 	
 	double Jj, Jjm1, Jjp1;
 	double inve;
