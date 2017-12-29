@@ -34,12 +34,14 @@ int main(int argc, char *argv[])
 	
 	long m;
 	long i, k;
-	long NMCMC = (long)1.0e3;
+	long NMCMC = (long)1e4;
 	
 	double time_spent;
 	double snr, snr_spa, match;
 	double max_match;
 	double jump; 
+	double logL_max = -1.e30;
+	double logLx, logLy, loga;
 	
 	double *num_series;
 	double *spa_series;
@@ -126,8 +128,6 @@ int main(int argc, char *argv[])
 	setup_interp(eb_max);
 	copy_EccBinary(eb_max, eb);
 
-	double logL_max = -1.e30;
-	double logLx, logLy, loga;
 	
 	double *spa_x, *spa_y;
 	spa_x = malloc(2*data->NFFT*sizeof(double));
@@ -139,6 +139,8 @@ int main(int argc, char *argv[])
 	}
 
  	logLx = get_logL(num_series, spa_series, data);
+ 	logLy = -1.0e30;
+ 	loga  = 0.;
 	fprintf(stdout, "\ninitial logLx: %f\n\n", logLx);
 	fprintf(stdout, "MCMC Initialized\n\n");
 	for (m=0; m<NMCMC; m++)
@@ -149,11 +151,16 @@ int main(int argc, char *argv[])
 		} 
 		
 		jump = gsl_rng_uniform(r);
-		if (jump < 0.5) fisher_jump(eb_x, eb_y, eb, r);
-		else diff_ev_jump(eb_x, eb_y, eb, r, history, m);
+		if (jump < 0.5) 
+		{
+			fisher_jump(eb_x, eb_y, eb, r);
+		} else 
+		{
+			diff_ev_jump(eb_x, eb_y, eb, r, history, m);
+		}
 
 		check_priors(eb_y, &meet_priors);
-		
+		//fprintf(stdout, "meet_priors[%ld]: %d\n", m/10, meet_priors);
 		if (meet_priors == 1)
 		{	// calculate signal associated with proposed source
 			map_array_to_params(eb_y);
@@ -163,24 +170,20 @@ int main(int argc, char *argv[])
 			logLy = get_logL(num_series, spa_y, data);	
 			loga  = log(gsl_rng_uniform(r));	
 		}
-		
+		//fprintf(stdout, "logLy[%ld]: %f\n", m, logLy);
+		if (logLy > -INFINITY){//fprintf(stdout, "logLy[%ld]: %f\n", m, logLy);
 		if (loga < (logLy - logLx) && meet_priors == 1)
 		{
 			accept += 1.;
 			copy_EccBinary(eb_x, eb_y);
-			
 			logLx = logLy;
+			
 			if (logLx > logL_max)
 			{
 				logL_max = logLx;
-				for (i=0; i<eb->NP; i++)
-				{
-					eb_max->params[i] = eb_x->params[i];
-				}
-				map_array_to_params(eb_max);
-				set_Antenna(eb_max);
+				copy_EccBinary(eb_max, eb_x);
 			}
-		}
+		}}
 
 		if (itr%10 == 0)
 		{
@@ -357,17 +360,18 @@ void construct_Data(struct EccBinary *eb, struct Data *data)
 
 void check_priors(struct EccBinary *eb_y, int *meet_priors)
 {
-	if (eb_y->params[0]  <   log(0.1)    || eb_y->params[0]  > log(50.))   meet_priors = 0; // Mc
-	if (eb_y->params[1]  <   log(0.001)  || eb_y->params[1]  > log(50.))   meet_priors = 0; // F0 
-	if (eb_y->params[2]  <   log(0.001)  || eb_y->params[2]  > log(50.))   meet_priors = 0; // c0
-	if (eb_y->params[3]  <=  0.          || eb_y->params[3]  > PI2)        meet_priors = 0; // lc
-	if (eb_y->params[4]  <   log(1.0e-4) || eb_y->params[4]  > log(100.))  meet_priors = 0; // tc
-	if (eb_y->params[5]  <   log(1.0e-6) || eb_y->params[5]  > log(1.0e6)) meet_priors = 0; // R
-	if (eb_y->params[6]  <=  0.          || eb_y->params[6]  > PI2)        meet_priors = 0; // beta
-	if (eb_y->params[7]  <= -1.          || eb_y->params[7]  > 1.)         meet_priors = 0; // ciota
-	if (eb_y->params[8]  <=  0.          || eb_y->params[8]  > PI2)        meet_priors = 0; // phi
-	if (eb_y->params[9]  <= -1.          || eb_y->params[9]  > 1.)         meet_priors = 0; // ctheta
-	if (eb_y->params[10] <=  0.          || eb_y->params[10] > M_PI)       meet_priors = 0; // psi
+	if (eb_y->params[0]  <   log(0.1)    || eb_y->params[0]  > log(50.))   *meet_priors = 0; // Mc
+	if (eb_y->params[1]  <   log(0.001)  || eb_y->params[1]  > log(50.))   *meet_priors = 0; // F0 
+	if (eb_y->params[2]  <   log(0.001)  || eb_y->params[2]  > log(50.))   *meet_priors = 0; // c0
+	if (eb_y->params[3]  <=  0.          || eb_y->params[3]  > PI2)        *meet_priors = 0; // lc
+	if (eb_y->params[4]  <   log(1.0e-4) || eb_y->params[4]  > log(100.))  *meet_priors = 0; // tc
+	if (eb_y->params[5]  <   log(1.0e-6) || eb_y->params[5]  > log(1.0e6)) *meet_priors = 0; // R
+	if (eb_y->params[6]  <=  0.          || eb_y->params[6]  > PI2)        *meet_priors = 0; // beta
+	if (eb_y->params[7]  <= -1.          || eb_y->params[7]  > 1.)         *meet_priors = 0; // ciota
+	if (eb_y->params[8]  <=  0.          || eb_y->params[8]  > PI2)        *meet_priors = 0; // phi
+	if (eb_y->params[9]  <= -1.          || eb_y->params[9]  > 1.)         *meet_priors = 0; // ctheta
+	if (eb_y->params[10] <=  0.          || eb_y->params[10] > M_PI)       *meet_priors = 0; // psi
+	
 //	if (eb_y->params[11] <   log(0.001)  || eb_y->params[11] > log(50.))   meet_priors = 0; // FLSO
 	
 	return;

@@ -171,7 +171,6 @@ void matrix_eigenstuff(double **matrix, double **evector, double *evalue, int N)
 		//cap minimum size eigenvalues
 		for(i=0; i<N; i++)
 		{
-			//if(evalue[i] != evalue[i] || evalue[i] <= 5.0) evalue[i] = 5.;
 			if(evalue[i] != evalue[i] || evalue[i] <= 10.0) evalue[i] = 10.;
 			//fprintf(stdout, "here\n");
 		}

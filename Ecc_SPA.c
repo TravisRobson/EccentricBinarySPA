@@ -196,14 +196,12 @@ double get_It(struct EccBinary *eb, double e)
 	return result*temp;
 }
 
-
 double get_Il(struct EccBinary *eb, double e)
 {
 	//fprintf(stdout, "fuck it all: %e\n", e);
 	return 19./30.*pow(e, 30./19.)*gsl_sf_hyperg_2F1(124./2299., 15./19., 34./19., -121./304.*e*e) ;
 }
 
-// get phase for a given e, f and j
 double get_phase(struct EccBinary *eb, int j, double e, double f)
 {
 	double result;
