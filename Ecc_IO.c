@@ -2,8 +2,23 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include <gsl/gsl_errno.h>
+#include <gsl/gsl_fft_complex.h>
+
 #include "Ecc_IO.h"
 #include "Detector.h"
+
+#define PBSTR "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+#define PBWIDTH 60
+
+void printProgress(double percentage)
+{
+    double val = (percentage * 100);
+    int lpad = (int) (percentage * PBWIDTH);
+    int rpad = PBWIDTH - lpad;
+    printf ("\r%3.1f%% [%.*s%*s]", val, lpad, PBSTR, rpad, "");
+    fflush (stdout);
+}
 
 void read_soln(double *time_series, FILE *fptr, struct Data *data)
 {
@@ -114,6 +129,26 @@ void print_spa(double *time_series, FILE *fptr, struct Data *data)
 		}
 	}
 	fclose(fptr);
+	
+	return;
+}
+
+void fill_num_series(double *num_series, struct Data *data)
+{
+	long i;
+	
+	FILE *in_file;
+	
+	in_file = fopen("soln.dat", "r");
+	read_soln(num_series, in_file, data);
+	
+	gsl_fft_complex_radix2_forward(num_series, 1, data->NFFT);
+	print_dft(num_series, fopen("dft.dat", "w"), data);
+	
+	for (i=0; i<2*data->NFFT; i++)
+	{	// Correct the units to make a true FT
+		num_series[i] *= data->dt;
+	}
 	
 	return;
 }
