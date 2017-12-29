@@ -1,7 +1,7 @@
 CC = gcc-7
 
 LIBS  = gsl gslcblas m 
-CCFLAGS += -g -Wall -std=gnu99 -fmax-errors=5 #-Werror 
+CCFLAGS += -g -Wall -std=gnu99 -fmax-errors=5 -O2#-Werror 
 #CCFLAGS += -g -ffast-math -Wall -O2 -ftree-vectorize -std=gnu99 -fmax-errors=5 #-Werror 
 
 OBJS = Ecc_SPA.o Ecc_Binary.o Ecc_Adiabat_Evol.o Detector.o Ecc_IO.o Ecc_Math.o

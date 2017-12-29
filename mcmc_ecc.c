@@ -30,11 +30,11 @@ void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBina
 int main(int argc, char *argv[])
 {		
 	int NC = 12; // number of chains
-	int c = 0; // HACK current chain number
+	int c = 0;   // HACK current chain number
 	
 	long m;
 	long i, j, k;
-	long NMCMC = (long)1e5;
+	long NMCMC = (long)1e3;
 	
 	double time_spent;
 	double snr, snr_spa, match;
