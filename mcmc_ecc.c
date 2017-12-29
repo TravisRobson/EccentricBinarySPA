@@ -24,28 +24,28 @@ void setup_EccBinary(struct EccBinary *eb);
 void construct_Data(struct EccBinary *eb, struct Data *data);
 void check_priors(struct EccBinary *eb_y, int *meet_priors);
 void copy_EccBinary(struct EccBinary *dest, struct EccBinary *src);
-void setup_xy_ebs(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb);
-void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r);
-void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double **history, long m);
+void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double heat);
+void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double ***history, long m, int c);
 
 int main(int argc, char *argv[])
 {		
-	int l = 0;
+	int NC = 12; // number of chains
+	int c = 0; // HACK current chain number
 	
 	long m;
-	long i, k;
-	long NMCMC = (long)1e4;
+	long i, j, k;
+	long NMCMC = (long)1e5;
 	
 	double time_spent;
 	double snr, snr_spa, match;
 	double max_match;
 	double jump; 
 	double logL_max = -1.e30;
-	double logLx, logLy, loga;
+	double logLy, loga;
 	
 	double *num_series;
-	double *spa_series;
-	double **history;
+	double *spa_x;
+	double ***history;
 	
 	clock_t begin = clock();
 	clock_t end;
@@ -59,10 +59,10 @@ int main(int argc, char *argv[])
 	construct_Data(eb, data);
 	
 	num_series  = malloc(2*data->NFFT*sizeof(double));
-	spa_series  = malloc(2*data->NFFT*sizeof(double));
+	spa_x  = malloc(2*data->NFFT*sizeof(double));
 	for (i=0; i<2*data->NFFT; i++)
 	{
-		spa_series[i] = 0.;
+		spa_x[i] = 0.;
 	}
 	fill_num_series(num_series, data);
 	snr = get_SNR(num_series, data);
@@ -70,14 +70,14 @@ int main(int argc, char *argv[])
 	
 	begin = clock();
 
-	max_match = max_spa_tc_lc(eb, data, spa_series, num_series, snr);
-	//print_spa(spa_series, fopen("spa.dat", "w"), data);
+	max_match = max_spa_tc_lc(eb, data, spa_x, num_series, snr);
+	//print_spa(spa_x, fopen("spa.dat", "w"), data);
 	eb->params[3]  = eb->lc;
 	eb->params[4]  = log(-eb->tc/10.);
-	snr_spa = get_SNR(spa_series, data);
+	snr_spa = get_SNR(spa_x, data);
 	fprintf(stdout, "\nFF: %f\n",   max_match);
-	fprintf(stdout, "max tc: %e\n", eb->tc);
-	fprintf(stdout, "max lc: %e\n", eb->lc);
+// 	fprintf(stdout, "max tc: %e\n", eb->tc);
+// 	fprintf(stdout, "max lc: %e\n", eb->lc);
 	fprintf(stdout, "spa SNR: %f\n", snr_spa);
 	
 	end = clock();
@@ -86,13 +86,12 @@ int main(int argc, char *argv[])
 	
 	data->under_samp = 64;
 	calc_Fisher(eb, data);
-		
 
-	
-	history = malloc(NMCMC/10*sizeof(double *));
-	for (i=0; i<NMCMC/10; i++)
+	history = malloc(NC*sizeof(double **));
+	for (i=0; i<NC; i++) history[i] = malloc(NMCMC/10*sizeof(double *));
+	for (i=0; i<NC; i++)
 	{
-		history[i] = malloc(eb->NP*sizeof(double));
+		for (j=0; j<NMCMC/10; j++) history[i][j] = malloc(eb->NP*sizeof(double));
 	}
 
 	eb->evals = malloc(eb->NP*sizeof(double));
@@ -111,38 +110,75 @@ int main(int argc, char *argv[])
 	gsl_rng *r = gsl_rng_alloc(TT);
 	gsl_rng_set(r, seed);
 	
-	struct EccBinary *eb_x = malloc(sizeof(struct EccBinary));
+	
+	// I am looking to make an array of eb_x's for different temperatures
+	struct EccBinary **eb_x_arr = malloc(NC*sizeof(struct EccBinary *));
+	for (c=0; c<NC; c++) eb_x_arr[c] = malloc(sizeof(struct EccBinary));
+	
 	struct EccBinary *eb_y = malloc(sizeof(struct EccBinary));
-	setup_xy_ebs(eb_x, eb_y, eb);
+	setup_interp(eb_y);
+	eb_y->params = malloc(eb->NP*sizeof(double));
+	for (i=0; i<eb->NP; i++) eb_y->params[i] = 0.;
+	copy_EccBinary(eb_y, eb);
+	
+	for (c=0; c<NC; c++)
+	{
+		setup_interp(eb_x_arr[c]);
+		eb_x_arr[c]->params = malloc(eb->NP*sizeof(double));
+		for (i=0; i<eb->NP; i++) eb_x_arr[c]->params[i] = 0.;
+		copy_EccBinary(eb_x_arr[c], eb);
+	}
+	
+	double *heat;
+	heat = malloc(NC*sizeof(double));
+	heat[0] = 1.0;
+	for (c=1; c<NC; c++) heat[c] = heat[c-1]*1.2;
+	
+	int *who;
+	who = malloc(NC*sizeof(int));
+	for (c=0; c<NC; c++) 
+	{
+		who[c] = c;
+		eb_x_arr[c]->who = c;
+	}
 	
 	FILE *out_file;
-	double accept = 0.;
+	double maccept = 0.; // mcmc acceptance count
+	double saccept = 0.; // swap acceptance count
 	out_file = fopen("chain.dat", "w");
 	int meet_priors = 1;
-	long itr = 0;
+	//long itr = 0;
 	
 	struct EccBinary *eb_max = malloc(sizeof(struct EccBinary));
-	eb_max->NP = 11;//12;
+	eb_max->NP = eb->NP;
 	eb_max->params = malloc(eb->NP*sizeof(double));
 	for (i=0; i<eb->NP; i++) eb_max->params[i] = 0.;
 	setup_interp(eb_max);
 	copy_EccBinary(eb_max, eb);
 
 	
-	double *spa_x, *spa_y;
-	spa_x = malloc(2*data->NFFT*sizeof(double));
+	double *spa_y;
 	spa_y = malloc(2*data->NFFT*sizeof(double));
 	for (i=0; i<2*data->NFFT; i++)
 	{
-		spa_x[i] = 0.;
 		spa_y[i] = 0.;
 	}
-
- 	logLx = get_logL(num_series, spa_series, data);
+	
+	double *logLx, temp;
+	temp = get_logL(num_series, spa_x, data);
+	logLx = malloc(NC*sizeof(double));
+	for (c=0; c<NC; c++) logLx[c] = temp;
+	
+ 	//logLx = get_logL(num_series, spa_x, data);
  	logLy = -1.0e30;
  	loga  = 0.;
-	fprintf(stdout, "\ninitial logLx: %f\n\n", logLx);
+	fprintf(stdout, "\ninitial cold logLx: %f\n\n", logLx[0]);
 	fprintf(stdout, "MCMC Initialized\n\n");
+	
+	long scount = 0;
+	long mcount = 0;
+	int id, hold;
+	double alpha, beta;
 	for (m=0; m<NMCMC; m++)
 	{
 		if (m%(int)(NMCMC*0.01) == 0 && m!=0)
@@ -150,60 +186,98 @@ int main(int argc, char *argv[])
 			printProgress((double)m/(double)(NMCMC));
 		} 
 		
-		jump = gsl_rng_uniform(r);
-		if (jump < 0.5) 
-		{
-			fisher_jump(eb_x, eb_y, eb, r);
-		} else 
-		{
-			diff_ev_jump(eb_x, eb_y, eb, r, history, m);
-		}
-
-		check_priors(eb_y, &meet_priors);
-		//fprintf(stdout, "meet_priors[%ld]: %d\n", m/10, meet_priors);
-		if (meet_priors == 1)
-		{	// calculate signal associated with proposed source
-			map_array_to_params(eb_y);
-			set_Antenna(eb_y);
-			fill_spa_series(spa_y, eb_y, data);
+		alpha = gsl_rng_uniform(r);
+		// propose chain swap
+		if (NC > 1 && alpha < 0.5)
+		{	
+			scount += 1;
+			alpha = (double)(NC-1)*gsl_rng_uniform(r);
+			k = (int)(alpha);
 			
-			logLy = get_logL(num_series, spa_y, data);	
-			loga  = log(gsl_rng_uniform(r));	
-		}
-		//fprintf(stdout, "logLy[%ld]: %f\n", m, logLy);
-		if (logLy > -INFINITY){//fprintf(stdout, "logLy[%ld]: %f\n", m, logLy);
-		if (loga < (logLy - logLx) && meet_priors == 1)
-		{
-			accept += 1.;
-			copy_EccBinary(eb_x, eb_y);
-			logLx = logLy;
+			beta  = (logLx[who[k]] - logLx[who[k+1]])/heat[k+1];
+			beta -= (logLx[who[k]] - logLx[who[k+1]])/heat[k];
 			
-			if (logLx > logL_max)
+			alpha = log(gsl_rng_uniform(r));
+			if (beta > -INFINITY)
 			{
-				logL_max = logLx;
-				copy_EccBinary(eb_max, eb_x);
+				if (beta > alpha)
+				{
+					hold     = who[k];
+					who[k]   = who[k+1];
+					who[k+1] = hold;
+					saccept++;
+				}
 			}
-		}}
+		}
+		
+		// do MCMC update
+		else 
+		{	
+			mcount++;
+			for (c=0; c<NC; c++)
+			{	
+				id = who[c];
+			
+				jump = gsl_rng_uniform(r);
+				if (jump < 0.5) 
+				{
+					fisher_jump(eb_x_arr[id], eb_y, eb, r, heat[c]);
+				} else 
+				{
+					diff_ev_jump(eb_x_arr[id], eb_y, eb, r, history, m, c);
+				}
 
-		if (itr%10 == 0)
-		{
-			fprintf(out_file, "%ld %.12g ", itr/10, logLx);
-			for (l=0; l<eb->NP; l++)
-			{
-				fprintf(out_file, "%.12g ", eb_x->params[l]);
-				history[itr/10][l] = eb_x->params[l];
+				check_priors(eb_y, &meet_priors);
+
+				if (meet_priors == 1)
+				{	// calculate signal associated with proposed source
+					map_array_to_params(eb_y);
+					set_Antenna(eb_y);
+					fill_spa_series(spa_y, eb_y, data);
+			
+					logLy = get_logL(num_series, spa_y, data);	
+					loga  = log(gsl_rng_uniform(r));	
+				}
+				// TODO could probably simplify the logic here
+				if (logLy > -INFINITY)
+				{
+					if (loga < (logLy - logLx[id])/heat[c] && meet_priors == 1)
+					{
+						if (c==0) maccept += 1.;
+						copy_EccBinary(eb_x_arr[id], eb_y);
+						logLx[id] = logLy;
+				
+						// look for max in posterior in cold chain
+						if (c == 0 && logLx[who[0]] > logL_max)
+						{
+							logL_max = logLx[who[0]];
+							copy_EccBinary(eb_max, eb_x_arr[who[0]]);
+						}
+					}
+				}
+			
+				if (m%10 == 0)
+				{
+					for (j=0; j<eb->NP; j++) history[c][m/10][j] = eb_x_arr[who[c]]->params[j]; 		
+				}
+				meet_priors = 1; // reset
 			}
+		}
+		if (m%10 == 0)
+		{
+			fprintf(out_file, "%ld %.12g ", m/10, logLx[who[0]]);
+			// print cold chain parameter
+			for (j=0; j<eb->NP; j++) fprintf(out_file, "%.12g ", eb_x_arr[who[0]]->params[j]);
 			fprintf(out_file, "\n");
-			
 		}
-		itr += 1;
-		meet_priors = 1; // reset
+		//itr += 1;
 	}
 	
 	fclose(out_file);
 	printProgress((double)m/(double)(NMCMC));
 	
-	fprintf(stdout, "\n\nAcceptance rate: %.2f%%\n", 100.*accept/itr);
+	fprintf(stdout, "\n\nMCMC Acceptance rate: %.2f%%\n", 100.*maccept/mcount);
+	fprintf(stdout, "Swap Acceptance rate: %.2f%%\n", 100.*saccept/scount);
 	fprintf(stdout, "logL_max: %f\n", logL_max);
 	
 	double *spa_max;
@@ -212,37 +286,40 @@ int main(int argc, char *argv[])
 	snr_spa = get_SNR(spa_max, data); snr = get_SNR(num_series, data); // repeat bc change in under sampling
 	match   = get_overlap(spa_max, num_series, data)/snr/snr_spa;
 	
-	fprintf(stdout, "FF: %f\n", match);
+	fprintf(stdout, "FF: %f\n\n", match);
 	
 	fprintf(stdout, "Mc   dif: %e\n", exp(eb->params[0])*TSUN  - exp(eb_max->params[0])*TSUN);
 	fprintf(stdout, "F0   dif: %e\n", exp(eb->params[1])*10.   - exp(eb_max->params[1])*10.);
 	fprintf(stdout, "c0   dif: %e\n", exp(eb->params[2])*1.    - exp(eb_max->params[2])*1.);
-//	fprintf(stdout, "FLSO dif: %e\n", exp(eb->params[11])*100. - exp(eb_max->params[11])*100.);
 		
 	
 	fprintf(stdout, "\n==============================================================\n");
 	
 	free(spa_max);
 	free(num_series);
-	free(spa_series);
+	free(spa_x);
 	
 	free(eb->params);
 	for (i=0; i<eb->NP; i++) free(eb->Fisher[i]);
 	free(eb);
 	free(data);
 	
-	free(eb_x->params);
+	for(c=0; c<NC; c++) free(eb_x_arr[c]->params);
+	for(c=0; c<NC; c++) free(eb_x_arr[c]);
+	
 	free(eb_y->params);
-	free(eb_max->params);
-	free(eb_x);
 	free(eb_y);
+	
+	free(eb_max->params);
 	free(eb_max);
 	
-	free(spa_x);
 	free(spa_y);
 	
-	for (i=0; i<NMCMC/10; i++) free(history[i]);
-
+	for (i=0; i<NC; i++)
+	{
+		for (j=0; j<NMCMC/10; j++) free(history[i][j]);
+	}
+	
 	return 0;
 }
 
@@ -282,7 +359,7 @@ void setup_EccBinary(struct EccBinary *eb)
 	eb->FLSO = pow((1. + eb->e0)/(6. + 2.*eb->e0), 3./2.)/PI2/eb->m;
  	
  	fprintf(stdout, "e0, p0, F0: %f %f %f\n", eb->e0, eb->p0, eb->F0);
-	fprintf(stdout, "R: %e\n", eb->R);
+//	fprintf(stdout, "R: %e\n", eb->R);
 	fprintf(stdout, "F LSO: %.3f Hz\n", eb->FLSO);
 
 	eb->lc = 0.;
@@ -350,10 +427,10 @@ void construct_Data(struct EccBinary *eb, struct Data *data)
 	data->left_pad = (long)((data->NFFT - data->N)/2);
 	
 	fprintf(stdout, "Evolution and print runtime: %f sec\n", time_spent);
-	fprintf(stdout, "\nN: %ld samples\n", data->N);
-	fprintf(stdout, "FFT df: %lf\n", 1./data->NFFT/data->dt);
-	fprintf(stdout, "TRU df: %lf\n", 1./data->N/data->dt);
-	fprintf(stdout, "NFFT: %ld\n", data->NFFT);
+// 	fprintf(stdout, "\nN: %ld samples\n", data->N);
+// 	fprintf(stdout, "FFT df: %lf\n", 1./data->NFFT/data->dt);
+// 	fprintf(stdout, "TRU df: %lf\n", 1./data->N/data->dt);
+// 	fprintf(stdout, "NFFT: %ld\n", data->NFFT);
 
 	return;
 }
@@ -396,27 +473,7 @@ void copy_EccBinary(struct EccBinary *dest, struct EccBinary *src)
 	return;
 }
 
-void setup_xy_ebs(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb)
-{	
-	int i;
-	
-	setup_interp(eb_x);
-	setup_interp(eb_y);
-	eb_x->params = malloc(eb->NP*sizeof(double));
-	eb_y->params = malloc(eb->NP*sizeof(double));
-	for (i=0; i<eb->NP; i++)
-	{
-		eb_x->params[i] = 0.;
-		eb_y->params[i] = 0.;
-	}
-	
-	copy_EccBinary(eb_x, eb);
-	copy_EccBinary(eb_y, eb);
-	
-	return;
-}
-
-void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r)
+void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double heat)
 {	
 	int i, j;
 	
@@ -433,13 +490,13 @@ void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinar
 	
 	for (i=0; i<eb->NP; i++)
 	{
-		eb_y->params[i] = eb_x->params[i] + jump[i];
+		eb_y->params[i] = eb_x->params[i] + jump[i]*sqrt(heat);
 	}
 	
 	return;
 }
 
-void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double **history, long m)
+void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double ***history, long m, int c)
 {
 	int i, j, k;
 		
@@ -464,7 +521,7 @@ void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBina
 		
 		for (i=0; i<eb->NP; i++)
 		{
-			eb_y->params[i] = eb_x->params[i] + alpha*(history[j][i] - history[k][i]);
+			eb_y->params[i] = eb_x->params[i] + alpha*(history[c][j][i] - history[c][k][i]);
 		}
 	}
 	

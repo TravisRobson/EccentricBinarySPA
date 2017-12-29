@@ -11,6 +11,7 @@ struct EccBinary
 	gsl_interp_accel *e_acc;
 	gsl_spline *e_spline;
 	
+	int who; // chain identifier
 	double *params;
 	int NP;
 	double **Fisher;
