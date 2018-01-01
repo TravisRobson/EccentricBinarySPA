@@ -14,8 +14,6 @@
 #define PIon4 0.78539816339
 
 
-
-
 /* ----------------  NATURAL CONSTANTS  ----------------- */
 
 /* Speed of light (m/s) */
