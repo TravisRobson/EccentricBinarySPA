@@ -15,10 +15,12 @@
 #include "Ecc_IO.h"
 #include "Ecc_Math.h"
 
+#define square(x) (x*x)
+
 double get_Cpj(struct EccBinary *eb, double j, double e)
 {
 	double Jj, Jjm1, Jjp1;
-	double a, b, c;
+	double a, b, c, eSQ;
 	double c2b, ci, si; 
 	
 	c2b = eb->c2beta;
@@ -29,17 +31,19 @@ double get_Cpj(struct EccBinary *eb, double j, double e)
 	Jjm1 = eb->Jjm1;
 	Jjp1 = eb->Jjp1;
 	
-	a = c2b*(1. + ci*ci)*e*(e*e - 1.)*j;
-	b = c2b*(1. + ci*ci)*(e*e - 2.) + e*e*si*si;
-	c = c2b*(1. + ci*ci)*e*(1. - e*e)*j;
+	eSQ = square(e);
+
+	a = c2b*(1. + ci*ci)*e*(eSQ - 1.)*j;
+	b = c2b*(1. + ci*ci)*(2. - eSQ) + eSQ*si*si;
+	c = c2b*(1. + ci*ci)*e*(1. - eSQ)*j;
 		
-	return 2.*(a*Jjm1 - b*Jj + c*Jjp1)*eb->inve*eb->inve;
+	return 2.*(a*Jjm1 + b*Jj + c*Jjp1)*eb->inve*eb->inve;
 }
 
 double get_Spj(struct EccBinary *eb, double j, double e)
 {
 	double Jj, Jjm1;
-	double a, b;
+	double a, b, eSQ;
 	double ci, s2b;
 	
 	ci  = eb->ciota;
@@ -48,16 +52,18 @@ double get_Spj(struct EccBinary *eb, double j, double e)
 	Jj   = eb->Jj;
 	Jjm1 = eb->Jjm1;
 	
-	a = e;
-	b = (1. + (1. - e*e)*j);
+	eSQ = square(e);
 	
-	return 4.*(1. + ci*ci)*s2b*sqrt(1. - e*e)*(a*Jjm1 - b*Jj)*eb->inve*eb->inve;
+	a = e;
+	b = (1. + (1. - eSQ)*j);
+	
+	return 4.*(1. + ci*ci)*s2b*sqrt(1. - eSQ)*(a*Jjm1 - b*Jj)*eb->inve*eb->inve;
 }
 
 double get_Ccj(struct EccBinary *eb, double j, double e)
 {
 	double Jj, Jjm1;
-	double a, b;
+	double a, b, eSQ;
 	double s2b, ci;
 	
 	ci  = eb->ciota;
@@ -65,9 +71,10 @@ double get_Ccj(struct EccBinary *eb, double j, double e)
 
 	Jj   = eb->Jj;
 	Jjm1 = eb->Jjm1;
-
-	a = 2.*e*(1. - e*e)*j;
-	b = e*e - 2. + 2.*(e*e - 1.)*j;
+	
+	eSQ = square(e);
+	a = 2.*e*(1. - eSQ)*j;
+	b = eSQ - 2. + 2.*(eSQ - 1.)*j;
 	
 	return 4*s2b*ci*(a*Jjm1 + b*Jj)*eb->inve*eb->inve;
 }
@@ -75,7 +82,7 @@ double get_Ccj(struct EccBinary *eb, double j, double e)
 double get_Scj(struct EccBinary *eb, double j, double e)
 {
 	double Jj, Jjm1;
-	double a, b;
+	double a, b, eSQ;
 	double c2b, ci;
 	
 	c2b = eb->c2beta;
@@ -84,10 +91,12 @@ double get_Scj(struct EccBinary *eb, double j, double e)
 	Jj   = eb->Jj;
 	Jjm1 = eb->Jjm1;
 	
-	a = e;
-	b = -1. + (e*e - 1.)*j;
+	eSQ = square(e);
 	
-	return 8.*c2b*ci*sqrt(1. - e*e)*(a*Jjm1 + b*Jj)*eb->inve*eb->inve;
+	a = e;
+	b = -1. + (eSQ - 1.)*j;
+	
+	return 8.*c2b*ci*sqrt(1. - eSQ)*(a*Jjm1 + b*Jj)*eb->inve*eb->inve;
 }
 
 double get_es(struct EccBinary *eb, double alpha)
@@ -134,12 +143,12 @@ double get_es(struct EccBinary *eb, double alpha)
 double interp_es(struct EccBinary *eb, double alpha)
 {
 	//return gsl_spline_eval(eb->e_spline, alpha, eb->e_acc);
-	if (alpha < 0.000068257 || alpha > 13152.153520857013)
-	{
-		return get_es(eb, alpha);
-	} else 
+	if (alpha > 0.000068257 || alpha < 13152.153520857013)
 	{
 		return gsl_spline_eval(eb->e_spline, alpha, eb->e_acc);
+	} else 
+	{
+		return get_es(eb, alpha);
 	}
 	
 }
@@ -226,10 +235,14 @@ double interp_phase(struct EccBinary *eb, double j, double alpha, double f)
 
 double get_Aj(struct EccBinary *eb, double j, double e)
 {
-	double result;
+	double result, eSQ;
 	
-	result = pow(j, 2./3.)*pow(1. - e*e, 7./4.)/sqrt(1. + 73./24.*e*e + 37./96.*e*e*e*e);
+	eSQ = square(e);
 	
+	//result = pow(j, 0.6666666666666666)*pow(1. - eSQ, 7./4.)/sqrt(1. + 73./24.*eSQ + 37./96.*eSQ*eSQ);
+	result = pow(j, 0.6666666666666666)*pow(1. - eSQ, 1.75)/sqrt(1. + 3.0416666666666665*eSQ + 0.38541666666666663*eSQ*eSQ);
+
+
 	return result;
 }
 
@@ -243,7 +256,7 @@ void get_harmonic(struct EccBinary *eb, int j, double f, double *hjRe, double *h
 	double jd = (double)j;
 	double alpha;
 	double e;
-	double K1, K2, dJj;
+	double K1, K2, dJj, arg;
 	
 	if (f > jd*eb->FLSO || f < jd*eb->F0)
 	{
@@ -257,33 +270,43 @@ void get_harmonic(struct EccBinary *eb, int j, double f, double *hjRe, double *h
 	eb->inve = 1./es;
 	e = es;
 
-
 	if (e < 0.8){
 		eb->Jj   = gsl_sf_bessel_Jn(j,   jd*e);
 		eb->Jjm1 = gsl_sf_bessel_Jn(j-1, jd*e);
 		eb->Jjp1 = gsl_sf_bessel_Jn(j+1, jd*e);
-	}else {
-	
-		K1 = gsl_sf_bessel_Kn(1./3., jd*(-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))*eb->inve)));
-		K2 = gsl_sf_bessel_Kn(2./3., jd*(-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))*eb->inve)));	
+	} else {
+		arg = (-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))*eb->inve));
+		K1  = gsl_sf_bessel_Kn(0.3333333333333333, jd*arg);
+		K2  = gsl_sf_bessel_Kn(0.6666666666666666, jd*arg);	
 		
-		eb->Jj = pow(2., 1./3.)*pow(3.,1./6.)*pow(pow(-sqrt(1 - pow(e, 2.)) 
-				 + log((1. + sqrt(1. - pow(e, 2.)))/e), 2./3.)
-	         	 /(1 - pow(e,2)),0.25)*((K1*pow(-sqrt(1 - pow(e,2)) 
-	         	 + log((1. + sqrt(1 - pow(e,2)))/e),1./3.))/(pow(2,1./3.)*pow(3,1./6.)*M_PI) 
-	         	 + (K2*pow(-sqrt(1 - pow(e,2)) + log((1 + sqrt(1 - pow(e,2)))/e),1./3.)*((-5/(3.*pow(1 - pow(e,2),1.5)) 
-	         	 + 1./sqrt(1 - pow(e,2)))/8. + 5/(72.*(-sqrt(1 - pow(e,2)) 
-	         	 + log((1 + sqrt(1 - pow(e,2)))/e)))))/(pow(2,1./3.)*pow(3,1./6.)*jd*M_PI));
-		dJj    = -(((1 - pow(e,2))*(-gsl_sf_bessel_Kn(2./3.,j*(-sqrt(1 - pow(e,2)) 
-	         	 + log((1 + sqrt(1 - pow(e,2)))/e))) 
-	         	 - (gsl_sf_bessel_Kn(1./3.,j*(-sqrt(1 - pow(e,2)) + log((1 + sqrt(1 - pow(e,2)))/e)))
-	         	 *((-6 + 27*pow(e,2))/pow(1 - pow(e,2),1.5) + 7/(sqrt(1 - pow(e,2)) 
-	         	 - log((1 + sqrt(1 - pow(e,2)))/e))))/(72.*j)))/(e*M_PI*pow((1 - pow(e,2))/pow(-sqrt(1 - pow(e,2)) 
-	         	 + log((1 + sqrt(1 - pow(e,2)))/e),2./3.),0.75)));     
+		eb->Jj = pow(2., 1./3.)*pow(3.,1./6.)*pow(pow(arg, 2./3.)/(1 - e*e),0.25)
+				 *((K1*pow(arg,1./3.))/(pow(2,1./3.)*pow(3,1./6.)*M_PI) 
+	         	 + (K2*pow(arg,1./3.)*((-5/(3.*pow(1 - e*e,1.5)) 
+	         	 + 1./sqrt(1 - e*e))/8. + 5/(72.*(arg))))/(pow(2,1./3.)*pow(3,1./6.)*jd*M_PI));
+	         	 
+		dJj    = -(((1 - e*e)*(-K2 
+	         	 - (K1*((-6 + 27*e*e)/pow(1 - e*e,1.5) + 7/(sqrt(1 - e*e) 
+	         	 - log((1 + sqrt(1 - e*e))*eb->inve))))/(72.*jd)))/(e*M_PI*pow((1 - e*e)/pow(arg,2./3.),0.75)));     
+// 		K1 = gsl_sf_bessel_Kn(0.3333333333333333, jd*(-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))*eb->inve)));
+// 		K2 = gsl_sf_bessel_Kn(0.6666666666666666, jd*(-sqrt(1 - pow(e, 2.)) + log((1. + sqrt(1. - pow(e, 2.)))*eb->inve)));	
+// 		
+// 		eb->Jj = pow(2., 1./3.)*pow(3.,1./6.)*pow(pow(-sqrt(1 - pow(e, 2.)) 
+// 				 + log((1. + sqrt(1. - pow(e, 2.)))/e), 2./3.)
+// 	         	 /(1 - pow(e,2)),0.25)*((K1*pow(-sqrt(1 - pow(e,2)) 
+// 	         	 + log((1. + sqrt(1 - pow(e,2)))/e),1./3.))/(pow(2,1./3.)*pow(3,1./6.)*M_PI) 
+// 	         	 + (K2*pow(-sqrt(1 - pow(e,2)) + log((1 + sqrt(1 - pow(e,2)))/e),1./3.)*((-5/(3.*pow(1 - pow(e,2),1.5)) 
+// 	         	 + 1./sqrt(1 - pow(e,2)))/8. + 5/(72.*(-sqrt(1 - pow(e,2)) 
+// 	         	 + log((1 + sqrt(1 - pow(e,2)))/e)))))/(pow(2,1./3.)*pow(3,1./6.)*jd*M_PI));
+// 		dJj    = -(((1 - pow(e,2))*(-gsl_sf_bessel_Kn(2./3.,j*(-sqrt(1 - pow(e,2)) 
+// 	         	 + log((1 + sqrt(1 - pow(e,2)))/e))) 
+// 	         	 - (gsl_sf_bessel_Kn(1./3.,j*(-sqrt(1 - pow(e,2)) + log((1 + sqrt(1 - pow(e,2)))/e)))
+// 	         	 *((-6 + 27*pow(e,2))/pow(1 - pow(e,2),1.5) + 7/(sqrt(1 - pow(e,2)) 
+// 	         	 - log((1 + sqrt(1 - pow(e,2)))/e))))/(72.*j)))/(e*M_PI*pow((1 - pow(e,2))/pow(-sqrt(1 - pow(e,2)) 
+// 	         	 + log((1 + sqrt(1 - pow(e,2)))/e),2./3.),0.75)));     
 	           
-	eb->Jjm1 = eb->Jj/e + dJj;
+		eb->Jjm1 = eb->Jj*eb->inve + dJj;
 	           
-	eb->Jjp1 = eb->Jj/e - dJj;
+		eb->Jjp1 = eb->Jj*eb->inve - dJj;
 	} 
 	
 	amp  = get_Aj(eb, jd, es);
@@ -309,8 +332,8 @@ void get_harmonic(struct EccBinary *eb, int j, double f, double *hjRe, double *h
 void get_eccSPA(struct EccBinary *eb, double f, double *spaRe, double *spaIm)
 {
 	int j;
-	int j_min = eb->j_min;
-	int j_max = eb->j_max;
+	const int j_min = eb->j_min;
+	const int j_max = eb->j_max;
 	
 	double re, im;
 	double a;
@@ -336,7 +359,7 @@ void get_eccSPA(struct EccBinary *eb, double f, double *spaRe, double *spaIm)
 void setup_interp(struct EccBinary *eb)
 {
 	int i;
-	int n = 10000;
+	int n = 1000;
 	
 	double *x, *psi, *e_vec;
 	
@@ -394,135 +417,6 @@ void setup_interp(struct EccBinary *eb)
 	free(x);
 	free(psi);
 	free(e_vec);	
-	
-	return;
-}
-
-void fill_spa_series_new(double *spa_series, struct Data *data, double *spa_0, struct EccBinary *eb)
-{
-	long i, iRe, iIm;
-	
-	double f;
-	double df = 1./(double)data->NFFT/data->dt;
-	double arg = PI2*eb->tc;
-	
-	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
-	{
-		iRe = 2*i*data->under_samp;
-		iIm = 2*(i*data->under_samp)+1;
-		
-		f = (double)(i*data->under_samp)*df;
-
-		spa_series[iRe] =  spa_0[iRe]*cos(arg*f) + spa_0[iIm]*sin(arg*f);
-		spa_series[iIm] = -spa_0[iRe]*sin(arg*f) + spa_0[iIm]*cos(arg*f);
-	}
-
-	return;
-}
-
-void fill_SPA_matrix(double **spa_matrix, struct EccBinary *eb, struct Data *data)
-{
-	int temp_j_min, temp_j_max;
-	
-	long i, j, iRe, iIm;
-	
-	double f;
-	double df = 1./(double)data->NFFT/data->dt;
-	double spaRe, spaIm;
-	
-	temp_j_min = eb->j_min;
-	temp_j_max = eb->j_max;
-	
-	for (j=0; j<temp_j_max; j++)
-	{ 
-		eb->j_min = j+1;
-		eb->j_max = j+1;
-		for (i=1; i<=data->NFFT/2/data->under_samp; i++)
-		{
-			iRe = 2*(i*data->under_samp);
-			iIm = 2*(i*data->under_samp)+1;
-		
-			f = (double)(i*data->under_samp)*df;
-		
-			get_eccSPA(eb, f, &spaRe, &spaIm);
-
-			spa_matrix[j][iRe] += spaRe;
-			spa_matrix[j][iIm] += spaIm;
-		}
-	}
-	eb->j_min = temp_j_min;
-	eb->j_max = temp_j_max;
-
-	return;
-}
-
-void spa_matrix_to_array(double **spa_matrix, double *spa_series, struct EccBinary *eb, struct Data *data)
-{
-	long i, j, iRe, iIm;
-		
-	double arg;
-	
-	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
-	{
-		iRe = 2*(i*data->under_samp);
-		iIm = 2*(i*data->under_samp)+1;
-
-		spa_series[iRe] = 0.;
-		spa_series[iIm] = 0.;
-	}
-		
-	if (eb->lc == 0.)
-	{
-		for (j=0; j<eb->j_max; j++)
-		{	
-			for (i=1; i<=data->NFFT/2/data->under_samp; i++)
-			{
-				iRe = 2*(i*data->under_samp);
-				iIm = 2*(i*data->under_samp)+1;
-		
-				spa_series[iRe] += spa_matrix[j][iRe];
-				spa_series[iIm] += spa_matrix[j][iIm];
-			}
-		}
-	}else 
-	{
-		for (j=0; j<eb->j_max; j++)
-		{	
-			arg = (double)(j+1)*eb->lc;
-			for (i=1; i<=data->NFFT/2/data->under_samp; i++)
-			{
-				iRe = 2*(i*data->under_samp);
-				iIm = 2*(i*data->under_samp)+1;
-		
-				spa_series[iRe] += spa_matrix[j][iRe]*cos(arg) - spa_matrix[j][iIm]*sin(arg);
-				spa_series[iIm] += spa_matrix[j][iRe]*sin(arg) + spa_matrix[j][iIm]*cos(arg);
-			}
-		}
-	}
-	
-	return;
-}
-
-void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data)
-{
- 	long i, iRe, iIm;
-	
-	double f;
-	double df = 1./(double)data->NFFT/data->dt;
-	double spaRe, spaIm;
-	
-	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
-	{
-		iRe = 2*(i*data->under_samp);
-		iIm = 2*(i*data->under_samp)+1;
-		
-		f = (double)(i*data->under_samp)*df;
-		
-		get_eccSPA(eb, f, &spaRe, &spaIm);
-
-		spa_series[iRe] = spaRe;
-		spa_series[iIm] = spaIm;
-	}
 	
 	return;
 }

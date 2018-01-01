@@ -9,7 +9,7 @@
 #include <gsl/gsl_fft_complex.h>
 
 #include "Ecc_Math.h"
-#include "Ecc_SPA.h"
+//#include "Ecc_SPA.h"
 #include "Ecc_Binary.h"
 #include "Constants.h"
 #include "Detector.h"
@@ -76,10 +76,10 @@ double get_logL(double *a, double *b, struct Data *data)
 	
 	dif = malloc(2*data->NFFT*sizeof(double));
 	
-	for (i=0; i<2*data->NFFT; i++)
-	{
-		dif[i] = 0.;
-	} 
+// 	for (i=0; i<2*data->NFFT; i++)
+// 	{
+// 		dif[i] = 0.;
+// 	} 
 	
 	for (i=0; i<=data->NFFT/2/data->under_samp; i++)
 	{
@@ -349,7 +349,7 @@ double find_max_tc(double *a, double *b, double *inv_ft, struct Data *data)
 
 double max_spa_tc_lc(struct EccBinary *eb, struct Data *data, double *spa_series, double *num_series, double snr)
 {
-	int k_max = 100; // for lc search (TODO: SEEM TO NEED LESS FOR LESS ECCENTRIC SYSTEMS)
+	int k_max = 150; // for lc search (TODO: SEEM TO NEED LESS FOR LESS ECCENTRIC SYSTEMS)
 	int l     = 0;
 	
 	long i, j, k;
@@ -419,7 +419,137 @@ double max_spa_tc_lc(struct EccBinary *eb, struct Data *data, double *spa_series
 	return max_match;
 }
 
+void fill_spa_series_new(double *spa_series, struct Data *data, double *spa_0, struct EccBinary *eb)
+{
+	long i, iRe, iIm;
+	
+	double f;
+	double df = 1./(double)data->NFFT/data->dt;
+	double arg = PI2*eb->tc;
+	
+	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+	{
+		iRe = 2*i*data->under_samp;
+		iIm = 2*(i*data->under_samp)+1;
+		
+		f = (double)(i*data->under_samp)*df;
 
+		spa_series[iRe] =  spa_0[iRe]*cos(arg*f) + spa_0[iIm]*sin(arg*f);
+		spa_series[iIm] = -spa_0[iRe]*sin(arg*f) + spa_0[iIm]*cos(arg*f);
+	}
+
+	return;
+}
+
+void fill_SPA_matrix(double **spa_matrix, struct EccBinary *eb, struct Data *data)
+{
+	int temp_j_min, temp_j_max;
+	
+	long i, j, iRe, iIm;
+	
+	double f;
+	double df = 1./(double)data->NFFT/data->dt;
+	double spaRe, spaIm;
+	
+	temp_j_min = eb->j_min;
+	temp_j_max = eb->j_max;
+	
+	for (j=0; j<temp_j_max; j++)
+	{ 
+		eb->j_min = j+1;
+		eb->j_max = j+1;
+		for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+		{
+			iRe = 2*(i*data->under_samp);
+			iIm = 2*(i*data->under_samp)+1;
+		
+			f = (double)(i*data->under_samp)*df;
+		
+			get_eccSPA(eb, f, &spaRe, &spaIm);
+
+			spa_matrix[j][iRe] += spaRe;
+			spa_matrix[j][iIm] += spaIm;
+		}
+	}
+	eb->j_min = temp_j_min;
+	eb->j_max = temp_j_max;
+
+	return;
+}
+
+void spa_matrix_to_array(double **spa_matrix, double *spa_series, struct EccBinary *eb, struct Data *data)
+{
+	long i, j, iRe, iIm;
+		
+	double arg;
+	
+	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+	{
+		iRe = 2*(i*data->under_samp);
+		iIm = 2*(i*data->under_samp)+1;
+
+		spa_series[iRe] = 0.;
+		spa_series[iIm] = 0.;
+	}
+		
+	if (eb->lc == 0.)
+	{
+		for (j=0; j<eb->j_max; j++)
+		{	
+			for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+			{
+				iRe = 2*(i*data->under_samp);
+				iIm = 2*(i*data->under_samp)+1;
+		
+				spa_series[iRe] += spa_matrix[j][iRe];
+				spa_series[iIm] += spa_matrix[j][iIm];
+			}
+		}
+	}else 
+	{
+		for (j=0; j<eb->j_max; j++)
+		{	
+			arg = (double)(j+1)*eb->lc;
+			for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+			{
+				iRe = 2*(i*data->under_samp);
+				iIm = 2*(i*data->under_samp)+1;
+		
+				spa_series[iRe] += spa_matrix[j][iRe]*cos(arg) - spa_matrix[j][iIm]*sin(arg);
+				spa_series[iIm] += spa_matrix[j][iRe]*sin(arg) + spa_matrix[j][iIm]*cos(arg);
+			}
+		}
+	}
+	
+	return;
+}
+
+void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data)
+{
+ 	long i, iRe, iIm;
+	
+	double f;
+	double df = 1./(double)data->NFFT/data->dt;
+	double spaRe, spaIm;
+	
+//	struct EccBinary eb_local = *eb;
+	
+	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+	{
+		iRe = 2*(i*data->under_samp);
+		iIm = 2*(i*data->under_samp)+1;
+		
+		f = (double)(i*data->under_samp)*df;
+		
+//		get_eccSPA(&eb_local, f, &spaRe, &spaIm);
+		get_eccSPA(eb, f, &spaRe, &spaIm);
+
+		spa_series[iRe] = spaRe;
+		spa_series[iIm] = spaIm;
+	}
+	
+	return;
+}
 
 
 

@@ -133,17 +133,16 @@ void print_spa(double *time_series, FILE *fptr, struct Data *data)
 	return;
 }
 
-void fill_num_series(double *num_series, struct Data *data)
+void fill_num_series(double *num_series, struct Data *data, FILE *fptr)
 {
 	long i;
 	
-	FILE *in_file;
-	
-	in_file = fopen("soln.dat", "r");
-	read_soln(num_series, in_file, data);
+	//FILE *in_file;
+		
+	read_soln(num_series, fptr, data);
 	
 	gsl_fft_complex_radix2_forward(num_series, 1, data->NFFT);
-	print_dft(num_series, fopen("dft.dat", "w"), data);
+//	print_dft(num_series, fopen("dft.dat", "w"), data);
 	
 	for (i=0; i<2*data->NFFT; i++)
 	{	// Correct the units to make a true FT

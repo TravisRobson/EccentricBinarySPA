@@ -206,7 +206,7 @@ void map_array_to_params(struct EccBinary *eb)
 	eb->c0    = exp(eb->params[2])*1.;
 	eb->lc    = eb->params[3];
 	eb->tc    = -exp(eb->params[4])*10.;
-	eb->R     = exp(eb->params[5])*(1.0e6*PC/C);
+	eb->R     = exp(eb->params[5])*(1.0e6*PC/Clight);
 	eb->beta  = eb->params[6];
 	eb->iota  = acos(eb->params[7]);
 	eb->phi   = eb->params[8];

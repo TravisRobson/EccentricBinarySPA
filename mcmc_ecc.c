@@ -20,21 +20,37 @@
 #include "Constants.h"
 #include "Detector.h"
 
-void setup_EccBinary(struct EccBinary *eb);
-void construct_Data(struct EccBinary *eb, struct Data *data);
+void setup_EccBinary(struct EccBinary *eb, char *argv[]);
+void construct_Data(struct EccBinary *eb, struct Data *data, char *argv[]);
 void check_priors(struct EccBinary *eb_y, int *meet_priors);
 void copy_EccBinary(struct EccBinary *dest, struct EccBinary *src);
 void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double heat);
 void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double ***history, long m, int c);
 
+
+// #define SQRT_MAGIC_F 0x5f3759df 
+//  float  sqrt2(const float x)
+// {
+//   const float xhalf = 0.5f*x;
+// 
+//   union // get bits for floating value
+//   {
+//     float x;
+//     int i;
+//   } u;
+//   u.x = x;
+//   u.i = SQRT_MAGIC_F - (u.i >> 1);  // gives initial guess y0
+//   return x*u.x*(1.5f - xhalf*u.x*u.x);// Newton step, repeating increases accuracy 
+// }
+
 int main(int argc, char *argv[])
 {		
-	int NC = 12; // number of chains
+	const unsigned int NC = 12;  //12 // number of chains
 	int c = 0;   // HACK current chain number
 	
 	long m;
 	long i, j, k;
-	long NMCMC = (long)1e3;
+	const unsigned long NMCMC = (long)1e5;
 	
 	double time_spent;
 	double snr, snr_spa, match;
@@ -55,8 +71,8 @@ int main(int argc, char *argv[])
 	struct EccBinary *eb = malloc(sizeof(struct EccBinary));
 	struct Data *data    = malloc(sizeof(struct Data));
 	
-	setup_EccBinary(eb);
-	construct_Data(eb, data);
+	setup_EccBinary(eb, argv);
+	construct_Data(eb, data, argv);
 	
 	num_series  = malloc(2*data->NFFT*sizeof(double));
 	spa_x  = malloc(2*data->NFFT*sizeof(double));
@@ -64,8 +80,36 @@ int main(int argc, char *argv[])
 	{
 		spa_x[i] = 0.;
 	}
-	fill_num_series(num_series, data);
+	fill_num_series(num_series, data, fopen(argv[5], "r"));
 	snr = get_SNR(num_series, data);
+	
+	// do an adjustment to distance, to get SNR of 10
+	eb->R = snr/10.*eb->R;
+	eb->params[5]  = log(eb->R/(1.0e6*PC/Clight));
+	for (i=0; i<2*data->NFFT; i++)
+	{
+		num_series[i] *= 10./snr;
+	}
+	snr = get_SNR(num_series, data);
+// 	
+// 	eb->R = snr/10.*eb->R;
+// 	eb->params[5]  = log(eb->R/(1.0e6*PC/Clight));
+// 	for (i=0; i<2*data->NFFT; i++)
+// 	{
+// 		num_series[i] *= 10./snr;
+// 	}
+// 	snr = get_SNR(num_series, data);
+// 	
+// 	eb->R = snr/10.*eb->R;
+// 	eb->params[5]  = log(eb->R/(1.0e6*PC/Clight));
+// 	for (i=0; i<2*data->NFFT; i++)
+// 	{
+// 		num_series[i] *= 10./snr;
+// 	}
+// 	snr = get_SNR(num_series, data);
+	
+	
+	
 	fprintf(stdout, "num SNR: %f\n\n", snr);
 	
 	begin = clock();
@@ -145,7 +189,7 @@ int main(int argc, char *argv[])
 	FILE *out_file;
 	double maccept = 0.; // mcmc acceptance count
 	double saccept = 0.; // swap acceptance count
-	out_file = fopen("chain.dat", "w");
+	out_file = fopen(argv[2], "w");
 	int meet_priors = 1;
 	//long itr = 0;
 	
@@ -179,6 +223,9 @@ int main(int argc, char *argv[])
 	long mcount = 0;
 	int id, hold;
 	double alpha, beta;
+	
+	begin = clock();
+	
 	for (m=0; m<NMCMC; m++)
 	{
 		if (m%(int)(NMCMC*0.01) == 0 && m!=0)
@@ -198,15 +245,13 @@ int main(int argc, char *argv[])
 			beta -= (logLx[who[k]] - logLx[who[k+1]])/heat[k];
 			
 			alpha = log(gsl_rng_uniform(r));
-			if (beta > -INFINITY)
+
+			if (beta > -INFINITY && beta > alpha)
 			{
-				if (beta > alpha)
-				{
-					hold     = who[k];
-					who[k]   = who[k+1];
-					who[k+1] = hold;
-					saccept++;
-				}
+				hold     = who[k];
+				who[k]   = who[k+1];
+				who[k+1] = hold;
+				saccept++;
 			}
 		}
 		
@@ -238,21 +283,18 @@ int main(int argc, char *argv[])
 					logLy = get_logL(num_series, spa_y, data);	
 					loga  = log(gsl_rng_uniform(r));	
 				}
-				// TODO could probably simplify the logic here
-				if (logLy > -INFINITY)
+
+				if (meet_priors == 1 && logLy > -INFINITY && loga < (logLy - logLx[id])/heat[c] )
 				{
-					if (loga < (logLy - logLx[id])/heat[c] && meet_priors == 1)
+					if (c==0) maccept += 1.;
+					copy_EccBinary(eb_x_arr[id], eb_y);
+					logLx[id] = logLy;
+			
+					// look for max in posterior in cold chain
+					if (c == 0 && logLx[who[0]] > logL_max)
 					{
-						if (c==0) maccept += 1.;
-						copy_EccBinary(eb_x_arr[id], eb_y);
-						logLx[id] = logLy;
-				
-						// look for max in posterior in cold chain
-						if (c == 0 && logLx[who[0]] > logL_max)
-						{
-							logL_max = logLx[who[0]];
-							copy_EccBinary(eb_max, eb_x_arr[who[0]]);
-						}
+						logL_max = logLx[who[0]];
+						copy_EccBinary(eb_max, eb_x_arr[who[0]]);
 					}
 				}
 			
@@ -291,7 +333,10 @@ int main(int argc, char *argv[])
 	fprintf(stdout, "Mc   dif: %e\n", exp(eb->params[0])*TSUN  - exp(eb_max->params[0])*TSUN);
 	fprintf(stdout, "F0   dif: %e\n", exp(eb->params[1])*10.   - exp(eb_max->params[1])*10.);
 	fprintf(stdout, "c0   dif: %e\n", exp(eb->params[2])*1.    - exp(eb_max->params[2])*1.);
-		
+	
+	end = clock();
+	time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
+	fprintf(stdout, "\nMCMC duration: %f sec\n", time_spent);
 	
 	fprintf(stdout, "\n==============================================================\n");
 	
@@ -323,7 +368,7 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
-void setup_EccBinary(struct EccBinary *eb)
+void setup_EccBinary(struct EccBinary *eb, char *argv[])
 {
 	long i;
 	
@@ -342,7 +387,7 @@ void setup_EccBinary(struct EccBinary *eb)
 	// calculate the Antenna patterns for each polarization
 	set_Antenna(eb);
 	
-	eb->R  = 410.*1.0e6*PC/C; // 410 Mpc
+	eb->R  = 410.*1.0e6*PC/Clight; // 410 Mpc
 	eb->m1 = 10.*TSUN;
 	eb->m2 = 10.*TSUN;
 	set_m(eb);
@@ -353,7 +398,7 @@ void setup_EccBinary(struct EccBinary *eb)
 	eb->eLSO = 0.01;   // LSO eccentricity
 	
 	eb->F0 = 3.0;
-	eb->e0 = 0.7;
+	eb->e0 = atof(argv[3]);
 	eb->p0 = (1. - eb->e0*eb->e0)*pow(eb->m/PI2/PI2/eb->F0/eb->F0, 1./3.)/eb->m;
 	eb->c0 = pow(calc_sigma(eb->e0), 3./2.)*eb->F0;
 	eb->FLSO = pow((1. + eb->e0)/(6. + 2.*eb->e0), 3./2.)/PI2/eb->m;
@@ -365,7 +410,7 @@ void setup_EccBinary(struct EccBinary *eb)
 	eb->lc = 0.;
 	eb->tc = 0.;
 	
-	eb->j_max = 15;
+	eb->j_max = atoi(argv[4]);
 	eb->j_min = 1;
 	
 	// set up parameter array
@@ -381,7 +426,7 @@ void setup_EccBinary(struct EccBinary *eb)
 	eb->params[2]  = log(eb->c0/1.);  	      // 1. Hz
 	eb->params[3]  = eb->lc;
 	eb->params[4]  = log(-eb->tc/10.); 		  // 10 sec
-	eb->params[5]  = log(eb->R/(1.0e6*PC/C)); // 1 Mpc
+	eb->params[5]  = log(eb->R/(1.0e6*PC/Clight)); // 1 Mpc
 	eb->params[6]  = eb->beta;
 	eb->params[7]  = cos(eb->iota);
 	eb->params[8]  = eb->phi;
@@ -394,7 +439,7 @@ void setup_EccBinary(struct EccBinary *eb)
 	return;
 }
 
-void construct_Data(struct EccBinary *eb, struct Data *data)
+void construct_Data(struct EccBinary *eb, struct Data *data, char *argv[])
 {
 	double time_spent;
 	
@@ -411,7 +456,7 @@ void construct_Data(struct EccBinary *eb, struct Data *data)
 	gsl_odeiv2_system sys = {func, jac, 3, eb};
 	gsl_odeiv2_driver *d = gsl_odeiv2_driver_alloc_y_new(&sys, gsl_odeiv2_step_bsimp, 1e-12, 1e-12, 0.);
 	
-	out_file = fopen("soln.dat", "w");
+	out_file = fopen(argv[5], "w");
 	evolve_binary(eb, data, y, d, out_file);
 	
 	// frequency resolution (true before zero padding)
@@ -458,15 +503,18 @@ void copy_EccBinary(struct EccBinary *dest, struct EccBinary *src)
 {
 	int i;
 	 
+	const int NP = 11;
+	 
 	dest->FLSO  = src->FLSO;
 	dest->j_min = src->j_min;
 	dest->j_max = src->j_max;
 	dest->NP    = src->NP;
 
-	for (i=0; i<src->NP; i++)
+	for (i=0; i<NP; i++)
 	{
 		dest->params[i] = src->params[i];
 	}
+	
 	map_array_to_params(dest);
 	set_Antenna(dest);
 	
@@ -481,14 +529,16 @@ void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinar
 	jump = malloc(eb->NP*sizeof(double));
 	for (i=0; i<eb->NP; i++) jump[i] = 0.;
 	
+	const int NP = 11;//eb_x->NP;
+	
 	j = (int)(gsl_rng_uniform(r)*(double)eb_y->NP);
-	for (i=0; i<eb->NP; i++)
+	for (i=0; i<NP; i++)
 	{
 		jump[i] = gsl_ran_gaussian(r, 1.)*eb->evecs[i][j]/sqrt(eb->evals[j]*eb->NP);
 	}
 	
 	
-	for (i=0; i<eb->NP; i++)
+	for (i=0; i<NP; i++)
 	{
 		eb_y->params[i] = eb_x->params[i] + jump[i]*sqrt(heat);
 	}
@@ -501,10 +551,11 @@ void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBina
 	int i, j, k;
 		
 	double alpha, beta;
+	const int NP = 11;//eb_x->NP;
 	
 	if (m/10<2) 
 	{
-		for (i=0; i<eb->NP; i++)
+		for (i=0; i<NP; i++)
 		{	// i.e. change nothing
 			eb_y->params[i] = eb_x->params[i];
 		}
@@ -519,7 +570,7 @@ void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBina
 		beta = gsl_rng_uniform(r);
 		if (beta < 0.9) alpha = gsl_ran_gaussian(r, 1.);
 		
-		for (i=0; i<eb->NP; i++)
+		for (i=0; i<NP; i++)
 		{
 			eb_y->params[i] = eb_x->params[i] + alpha*(history[c][j][i] - history[c][k][i]);
 		}

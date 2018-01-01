@@ -16,7 +16,7 @@ void read_soln_no_RR(double *time_series, FILE *fptr, struct Data *data);
 void read_soln(double *time_series, FILE *fptr, struct Data *data);
 void print_dft(double *time_series, FILE *fptr, struct Data *data);
 void print_spa(double *time_series, FILE *fptr, struct Data *data);
-void fill_num_series(double *num_series, struct Data *data);
+void fill_num_series(double *num_series, struct Data *data, FILE *fptr);
 void printProgress(double percentage);
 
 #endif /* Ecc_IO */

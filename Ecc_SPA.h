@@ -31,16 +31,12 @@ void get_harmonic(struct EccBinary *eb, int j, double f, double *hjRe, double *h
 // calculate the real an imaginary parts of the SPA at a given f
 void get_eccSPA(struct EccBinary *eb, double f, double *spaRe, double *spaIm);
 
-
 double term(int r, double x);
 
 void setup_interp(struct EccBinary *eb);
 double interp_phase(struct EccBinary *eb, double j, double alpha, double f);
 double interp_es(struct EccBinary *eb, double alpha);
-void fill_spa_series_new(double *spa_series, struct Data *data, double *spa_0, struct EccBinary *eb);
-void fill_SPA_matrix(double **spa_matrix, struct EccBinary *eb, struct Data *data);
-void spa_matrix_to_array(double **spa_matrix, double *spa_series, struct EccBinary *eb, struct Data *data);
-void fill_spa_series(double *spa_series, struct EccBinary *eb, struct Data *data);
+
 void calc_Fisher(struct EccBinary *eb, struct Data *data);
 
 #endif /* Ecc_SPA_h */
