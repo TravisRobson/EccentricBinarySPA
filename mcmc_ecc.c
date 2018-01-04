@@ -26,22 +26,7 @@ void check_priors(struct EccBinary *eb_y, int *meet_priors);
 void copy_EccBinary(struct EccBinary *dest, struct EccBinary *src);
 void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double heat);
 void diff_ev_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double ***history, long m, int c);
-
-
-// #define SQRT_MAGIC_F 0x5f3759df 
-//  float  sqrt2(const float x)
-// {
-//   const float xhalf = 0.5f*x;
-// 
-//   union // get bits for floating value
-//   {
-//     float x;
-//     int i;
-//   } u;
-//   u.x = x;
-//   u.i = SQRT_MAGIC_F - (u.i >> 1);  // gives initial guess y0
-//   return x*u.x*(1.5f - xhalf*u.x*u.x);// Newton step, repeating increases accuracy 
-// }
+void circ_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double heat);
 
 int main(int argc, char *argv[])
 {		
@@ -81,33 +66,47 @@ int main(int argc, char *argv[])
 		spa_x[i] = 0.;
 	}
 	fill_num_series(num_series, data, fopen(argv[5], "r"));
+	
+	
+
+	
 	snr = get_SNR(num_series, data);
 	
 	// do an adjustment to distance, to get SNR of 10
-	eb->R = snr/10.*eb->R;
+	eb->R = snr/atof(argv[6])*eb->R;
 	eb->params[5]  = log(eb->R/(1.0e6*PC/Clight));
 	for (i=0; i<2*data->NFFT; i++)
 	{
-		num_series[i] *= 10./snr;
+		num_series[i] *= atof(argv[6])/snr;
 	}
 	snr = get_SNR(num_series, data);
-// 	
-// 	eb->R = snr/10.*eb->R;
-// 	eb->params[5]  = log(eb->R/(1.0e6*PC/Clight));
-// 	for (i=0; i<2*data->NFFT; i++)
-// 	{
-// 		num_series[i] *= 10./snr;
-// 	}
-// 	snr = get_SNR(num_series, data);
-// 	
-// 	eb->R = snr/10.*eb->R;
-// 	eb->params[5]  = log(eb->R/(1.0e6*PC/Clight));
-// 	for (i=0; i<2*data->NFFT; i++)
-// 	{
-// 		num_series[i] *= 10./snr;
-// 	}
-// 	snr = get_SNR(num_series, data);
 	
+
+	// need to add in a injections of Gaussian noise
+	int seed = atoi(argv[1]);
+	gsl_rng_env_setup();
+	const gsl_rng_type *TT = gsl_rng_default;
+	gsl_rng *r = gsl_rng_alloc(TT);
+	gsl_rng_set(r, seed);	
+	long iRe, iIm; double f, Sn; double df = 1./(double)data->NFFT/data->dt;
+	for (i=1; i<=data->NFFT/2/data->under_samp; i++)
+	{
+		iRe = 2*(i*data->under_samp);
+		iIm = 2*(i*data->under_samp)+1;
+		
+		f  = (double)(i*data->under_samp)*df;
+		Sn = get_Sn(f);
+		
+		if (Sn == INFINITY)
+		{
+			continue;
+		} else
+		{
+			num_series[iRe] += 0.*0.5*sqrt(Sn)*gsl_ran_gaussian(r, 1.);
+			num_series[iIm] += 0.*0.5*sqrt(Sn)*gsl_ran_gaussian(r, 1.);		
+		}
+
+	}
 	
 	
 	fprintf(stdout, "num SNR: %f\n\n", snr);
@@ -128,7 +127,7 @@ int main(int argc, char *argv[])
 	time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
 	fprintf(stdout, "\nFF duration: %f sec\n", time_spent);
 	
-	data->under_samp = 64;
+	data->under_samp = atoi(argv[7]);
 	calc_Fisher(eb, data);
 
 	history = malloc(NC*sizeof(double **));
@@ -148,11 +147,7 @@ int main(int argc, char *argv[])
 	}
     matrix_eigenstuff(eb->Fisher, eb->evecs, eb->evals, eb->NP); // fisher matrix gets inverted here I believe
 
-	int seed = atoi(argv[1]);
-	gsl_rng_env_setup();
-	const gsl_rng_type *TT = gsl_rng_default;
-	gsl_rng *r = gsl_rng_alloc(TT);
-	gsl_rng_set(r, seed);
+
 	
 	
 	// I am looking to make an array of eb_x's for different temperatures
@@ -200,13 +195,20 @@ int main(int argc, char *argv[])
 	setup_interp(eb_max);
 	copy_EccBinary(eb_max, eb);
 
-	
 	double *spa_y;
 	spa_y = malloc(2*data->NFFT*sizeof(double));
 	for (i=0; i<2*data->NFFT; i++)
 	{
 		spa_y[i] = 0.;
 	}
+	begin = clock();
+	fill_spa_series(spa_y, eb_max, data);
+	double y_snr = get_SNR(spa_y, data);
+	
+	end = clock();
+	time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
+	fprintf(stdout, "\nSPA sample duration: %f sec, SNR %f\n", time_spent, y_snr);
+	
 	
 	double *logLx, temp;
 	temp = get_logL(num_series, spa_x, data);
@@ -225,6 +227,9 @@ int main(int argc, char *argv[])
 	double alpha, beta;
 	
 	begin = clock();
+	
+	double dummy = 0.05;
+	//if (eb->e0 < 0.1) dummy = 0.4;
 	
 	for (m=0; m<NMCMC; m++)
 	{
@@ -264,13 +269,16 @@ int main(int argc, char *argv[])
 				id = who[c];
 			
 				jump = gsl_rng_uniform(r);
-				if (jump < 0.5) 
+				if (jump < 0.5 && jump > dummy) 
 				{
 					fisher_jump(eb_x_arr[id], eb_y, eb, r, heat[c]);
-				} else 
+				} else if (jump > 0.5)
 				{
 					diff_ev_jump(eb_x_arr[id], eb_y, eb, r, history, m, c);
-				}
+				} else 
+				{
+					circ_jump(eb_x_arr[id], eb_y, eb, r, heat[c]);	
+				}	
 
 				check_priors(eb_y, &meet_priors);
 
@@ -397,7 +405,7 @@ void setup_EccBinary(struct EccBinary *eb, char *argv[])
 	
 	eb->eLSO = 0.01;   // LSO eccentricity
 	
-	eb->F0 = 3.0;
+	eb->F0 = 5.0;
 	eb->e0 = atof(argv[3]);
 	eb->p0 = (1. - eb->e0*eb->e0)*pow(eb->m/PI2/PI2/eb->F0/eb->F0, 1./3.)/eb->m;
 	eb->c0 = pow(calc_sigma(eb->e0), 3./2.)*eb->F0;
@@ -406,6 +414,7 @@ void setup_EccBinary(struct EccBinary *eb, char *argv[])
  	fprintf(stdout, "e0, p0, F0: %f %f %f\n", eb->e0, eb->p0, eb->F0);
 //	fprintf(stdout, "R: %e\n", eb->R);
 	fprintf(stdout, "F LSO: %.3f Hz\n", eb->FLSO);
+	fprintf(stdout, "log c0: %.3f\n", log(eb->c0));
 
 	eb->lc = 0.;
 	eb->tc = 0.;
@@ -484,7 +493,7 @@ void check_priors(struct EccBinary *eb_y, int *meet_priors)
 {
 	if (eb_y->params[0]  <   log(0.1)    || eb_y->params[0]  > log(50.))   *meet_priors = 0; // Mc
 	if (eb_y->params[1]  <   log(0.001)  || eb_y->params[1]  > log(50.))   *meet_priors = 0; // F0 
-	if (eb_y->params[2]  <   log(0.001)  || eb_y->params[2]  > log(50.))   *meet_priors = 0; // c0
+	if (eb_y->params[2]  <   log(1.0e-5) || eb_y->params[2]  > log(100.))  *meet_priors = 0; // c0
 	if (eb_y->params[3]  <=  0.          || eb_y->params[3]  > PI2)        *meet_priors = 0; // lc
 	if (eb_y->params[4]  <   log(1.0e-4) || eb_y->params[4]  > log(100.))  *meet_priors = 0; // tc
 	if (eb_y->params[5]  <   log(1.0e-6) || eb_y->params[5]  > log(1.0e6)) *meet_priors = 0; // R
@@ -521,6 +530,47 @@ void copy_EccBinary(struct EccBinary *dest, struct EccBinary *src)
 	return;
 }
 
+void circ_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double heat)
+{
+// 	int j;
+// 	double jump;
+// 	
+// 	j = (int)(gsl_rng_uniform(r)*(double)eb_y->NP);
+// 	jump = gsl_ran_gaussian(r, 1.)*eb->evecs[0][j]/sqrt(eb->evals[j]*eb->NP);
+// 	eb_y->params[0] = eb_x->params[0] + 0.3*jump*sqrt(heat);
+// 	
+// 	j = (int)(gsl_rng_uniform(r)*(double)eb_y->NP);
+// 	jump = gsl_ran_gaussian(r, 1.)*eb->evecs[1][j]/sqrt(eb->evals[j]*eb->NP);
+// 	eb_y->params[1] = eb_x->params[1] + 0.3*jump*sqrt(heat);
+// 	
+// 	j = (int)(gsl_rng_uniform(r)*(double)eb_y->NP);
+// 	jump = gsl_ran_gaussian(r, 1.)*eb->evecs[3][j]/sqrt(eb->evals[j]*eb->NP);
+// 	eb_y->params[3] = eb_x->params[3] + 0.3*jump*sqrt(heat);
+// 	
+// 	j = (int)(gsl_rng_uniform(r)*(double)eb_y->NP);
+// 	jump = gsl_ran_gaussian(r, 1.)*eb->evecs[4][j]/sqrt(eb->evals[j]*eb->NP);
+// 	eb_y->params[4] = eb_x->params[4] + 0.3*jump*sqrt(heat);
+	
+	int i, j;
+	double *jump;
+	jump = malloc(eb->NP*sizeof(double));
+	for (i=0; i<eb->NP; i++) jump[i] = 0.;
+	
+	const int NP = 11;//eb_x->NP;
+	
+	j = (int)(gsl_rng_uniform(r)*(double)eb_y->NP);
+	for (i=0; i<NP; i++)
+	{
+		if (i != 2) jump[i] = gsl_ran_gaussian(r, 1.)*eb->evecs[i][j]/sqrt(eb->evals[j]*eb->NP);
+		//else if(i == 0 || i == 4) jump[i] *= 0.1;
+	}
+	
+	for (i=0; i<NP; i++)
+	{
+		if (i != 2) eb_y->params[i] = eb_x->params[i] + jump[i]*sqrt(heat);
+	}
+	return;
+}
 void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinary *eb, gsl_rng *r, double heat)
 {	
 	int i, j;
@@ -536,7 +586,6 @@ void fisher_jump(struct EccBinary *eb_x, struct EccBinary *eb_y, struct EccBinar
 	{
 		jump[i] = gsl_ran_gaussian(r, 1.)*eb->evecs[i][j]/sqrt(eb->evals[j]*eb->NP);
 	}
-	
 	
 	for (i=0; i<NP; i++)
 	{

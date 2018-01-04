@@ -143,7 +143,7 @@ double get_es(struct EccBinary *eb, double alpha)
 double interp_es(struct EccBinary *eb, double alpha)
 {
 	//return gsl_spline_eval(eb->e_spline, alpha, eb->e_acc);
-	if (alpha > 0.000068257 || alpha < 13152.153520857013)
+	if (alpha > 0.000068257 && alpha < 13152.153520857013)
 	{
 		return gsl_spline_eval(eb->e_spline, alpha, eb->e_acc);
 	} else 
@@ -226,8 +226,17 @@ double interp_phase(struct EccBinary *eb, double j, double alpha, double f)
 {
 	double result;
 	
-	result  = 15./304./pow(eb->c0, 8./3.)/pow(PI2*eb->Mc, 5./3.)*f;
-	result *= gsl_spline_eval(eb->spline, alpha, eb->acc);
+ 	result  = 15./304./pow(eb->c0, 8./3.)/pow(PI2*eb->Mc, 5./3.)*f;
+// 	result *= gsl_spline_eval(eb->spline, alpha, eb->acc);
+// 	result += -PI2*f*eb->tc + j*eb->lc;
+
+	if (alpha > 0.000068257 && alpha < 13152.153520857013)
+	{
+		result *= gsl_spline_eval(eb->spline, alpha, eb->acc);
+	} else 
+	{
+		result *= get_It(eb, 1./eb->inve) - alpha*get_Il(eb, 1./eb->inve);
+	}
 	result += -PI2*f*eb->tc + j*eb->lc;
 
 	return result;
@@ -426,7 +435,7 @@ void calc_Fisher(struct EccBinary *eb, struct Data *data)
 	long iRe, iIm; 
 	long i, k;
 	
-	double ep = 1.0e-6;
+	double ep = 1.0e-4;
 	
 	double *spa_p, *spa_m, **spa_dif;
 	

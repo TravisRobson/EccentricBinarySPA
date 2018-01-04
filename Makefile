@@ -2,11 +2,11 @@ CC = gcc-7
 
 LIBS  = gsl gslcblas m 
 CCFLAGS += -g -Wall -std=gnu99 -fmax-errors=5 #-Werror 
-#CCFLAGS += -g -ffast-math -Wall -O2 -ftree-vectorize -std=gnu99 -fmax-errors=5 #-Werror 
+#CCFLAGS += -ffast-math -O2 -ftree-vectorize#-Werror 
 
 OBJS = Ecc_SPA.o Ecc_Binary.o Ecc_Adiabat_Evol.o Detector.o Ecc_IO.o Ecc_Math.o
 
-all : $(OBJS) mcmc #full_match # num_test no_RR_test harm_match spa_harm  num_spa_harms fisher 
+all : $(OBJS) mcmc times #full_match # num_test no_RR_test harm_match spa_harm  num_spa_harms fisher 
 
 Ecc_SPA.o : Ecc_SPA.c Ecc_SPA.h Ecc_Binary.h Constants.h Ecc_Math.h
 	$(CC) $(CCFLAGS) -c Ecc_SPA.c
@@ -38,8 +38,8 @@ Ecc_Math.o : Ecc_Math.c Ecc_Math.h Ecc_IO.h Ecc_Binary.h Detector.h
 # spa_harm : $(OBJS) harmonic_breakout_num_SPA.c
 # 	$(CC) $(CCFLAGS) -o spa_harm harmonic_breakout_num_SPA.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)		
 # 
-full_match : $(OBJS) full_ecc_match.c
-	$(CC) $(CCFLAGS) -o full_match full_ecc_match.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
+# full_match : $(OBJS) full_ecc_match.c
+# 	$(CC) $(CCFLAGS) -o full_match full_ecc_match.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
 # 	
 # num_spa_harms : $(OBJS) num_SPA_harms.c
 # 	$(CC) $(CCFLAGS) -o num_spa_harms num_SPA_harms.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
@@ -50,5 +50,8 @@ full_match : $(OBJS) full_ecc_match.c
 mcmc : $(OBJS) mcmc_ecc.c
 	$(CC) $(CCFLAGS) -o mcmc mcmc_ecc.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
 	
+times : $(OBJS) get_times.c
+	$(CC) $(CCFLAGS) -o times get_times.c $(OBJS) $(INCDIR:%=-I%) $(LIBDIR:%=-L%) $(LIBS:%=-l%)
+	
 clean: 
-	rm *.o mcmc #full_match #num_test no_RR_test harm_match spa_harm num_spa_harms fisher 
+	rm *.o mcmc times #full_match #num_test no_RR_test harm_match spa_harm num_spa_harms fisher 
