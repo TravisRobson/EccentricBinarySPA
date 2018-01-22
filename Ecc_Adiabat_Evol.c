@@ -107,9 +107,10 @@ void evolve_binary(struct EccBinary *eb, struct Data *data, double y[], gsl_odei
 	double dt, h;
 	
 	dt = data->dt;
-	i = 0; t = 0.;
+	i = 0; t = 0.; Forb = pow((1. - y[2]*y[2])/y[1], 3./2.)/PI2/eb->m;
 	
-	while (Forb < eb->FLSO)
+	//while (Forb < eb->FLSO)
+	while (Forb - pow((1. + y[2])/(6. + 2.*y[2]), 1.5)/(PI2*eb->m) < 0.)
 	{
 		ti = (double)i*dt;
 		status = gsl_odeiv2_driver_apply(d, &t, ti, y);
@@ -128,7 +129,9 @@ void evolve_binary(struct EccBinary *eb, struct Data *data, double y[], gsl_odei
 	}
 	fclose(fptr);
 	
-	data->N = i;	// number of data samples
+	eb->FLSO = Forb; // update FLSO
+	
+	data->N = i;	 // number of data samples
 
 	return;
 }
